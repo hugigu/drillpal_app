@@ -1,0 +1,2927 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>DrillPal — Ink Prototype</title>
+<!-- PWA: installable, offline via sw.js. Paths are relative — the app is
+     served from a repo sub-path (hugigu.github.io/DrillPal/). -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#F4F3EF" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0E151C" media="(prefers-color-scheme: dark)">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="DrillPal">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<style>
+  :root {
+    /* chrome — warmed off the old cool grey per the 2026-08-27 UI pass;
+       see design-system.md */
+    --paper:   #F4F3EF;
+    --ink:     #1B1A17;
+    --ink-2:   #63615A;
+    --line:    #D3CFC6;
+    --border-strong: #B4AEA1;
+    --panel:   #FFFFFF;
+    --panel-2: #ECEAE4;
+    /* content — unchanged (these are the play's own colours, not chrome) */
+    --court:   #FCFBF8;
+    --court-line: #C0BBAF;
+    --accent:  #1D5FBF;
+    --accent-weak: rgba(29,95,191,.12);
+    --pass:    #1B7248;
+    --shot:    #A97428;
+    --note:    #D18A1F;
+    --off:     #1D5FBF;
+    --def:     #BE3729;
+    --def-weak: rgba(190,55,41,.12);
+    --ball:    #D18A1F;
+    --future:  #8A8FA3;
+    --cone:    #7A4FB0;
+    --r-sm: 6px; --r-md: 10px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #0E151C; --ink: #E5EBF1; --ink-2: #93A2AE; --line: #2A3742;
+      --border-strong: #44535F;
+      --panel: #151E27; --panel-2: #1E2A35; --court: #16202A; --court-line: #33424D;
+      --accent: #74AAF2; --accent-weak: rgba(116,170,242,.18); --pass: #58C08C; --shot: #D6A75C;
+      --note: #E3A64B; --off: #7FB2F5; --def: #EE8375; --def-weak: rgba(238,131,117,.18); --ball: #E3A64B;
+      --cone: #B99EE8;
+      --future: #6B7686;
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden; background: var(--paper); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    touch-action: none; user-select: none;
+  }
+  #app { display: flex; flex-direction: column; height: 100%; }
+
+  /* ============ app bar ============ */
+  header {
+    display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+    padding: 9px 12px; border-bottom: 1px solid var(--line); background: var(--panel);
+    padding-top: max(9px, env(safe-area-inset-top));
+  }
+  .word { font-size: 15px; font-weight: 600; letter-spacing: -.01em; margin-right: 4px; white-space: nowrap; }
+  .divider { width: 1px; align-self: stretch; background: var(--line); margin: 2px 2px; }
+  .spacer { flex: 1; min-width: 8px; }
+  .grp { display: flex; align-items: center; gap: 6px; }
+
+  button { font: inherit; cursor: pointer; touch-action: manipulation; }
+  button:disabled { opacity: .35; cursor: default; pointer-events: none; }
+
+  /* standard toolbar button */
+  .b {
+    font-size: 13px; font-weight: 500; color: var(--ink);
+    display: inline-flex; align-items: center; gap: 6px;
+    min-height: 34px; padding: 6px 10px; border-radius: var(--r-sm);
+    border: 1px solid var(--line); background: transparent;
+    white-space: nowrap; position: relative;
+    transition: background .12s, border-color .12s, color .12s;
+  }
+  .b:hover { background: var(--panel-2); }
+  .b:active { transform: translateY(1px); }
+  .b svg { width: 18px; height: 18px; display: block; flex: none; }
+  .b .chev { transition: transform .16s; }
+  .b.menu-open .chev { transform: rotate(180deg); }
+  .b--quiet { border-color: transparent; color: var(--ink-2); }
+  .b--quiet:hover { background: var(--panel-2); color: var(--ink); }
+  .b--primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .b--primary:hover { background: var(--accent); filter: brightness(1.06); }
+
+  /* icon button */
+  .ib {
+    width: 40px; height: 40px; padding: 0; border: 1px solid transparent; border-radius: var(--r-sm);
+    display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; color: var(--ink-2); position: relative;
+    transition: background .12s, color .12s;
+  }
+  .ib:hover { background: var(--panel-2); color: var(--ink); }
+  .ib:active { transform: translateY(1px); }
+  .ib.on { color: var(--accent); background: var(--accent-weak); }
+  .ib svg { width: 20px; height: 20px; display: block; }
+
+  /* ---- arrange band: mode controls + ball/cone sources, between the bar and
+     the court, only in Arrange mode (the trays used to sit at the court corner
+     and clipped off-screen on a real iPad) ---- */
+  .arrange-band {
+    display: none; align-items: center; gap: 10px 14px; flex-wrap: wrap;
+    padding: 9px 12px; background: var(--panel); border-bottom: 1px solid var(--line);
+  }
+  #app.arranging .arrange-band { display: flex; }
+  .band-div { width: 1px; align-self: stretch; min-height: 24px; background: var(--line); }
+  .band-label {
+    font-size: 10px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-2);
+  }
+  .source {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 11px 6px 8px; border: 1px dashed var(--border-strong); border-radius: var(--r-sm);
+    font-size: 12.5px; font-weight: 500; color: var(--ink-2); background: transparent;
+    cursor: grab; touch-action: none;
+  }
+  .source:active { cursor: grabbing; }
+  .source:hover { background: var(--panel-2); color: var(--ink); }
+  .source .glyph { width: 22px; height: 22px; flex: none; display: grid; place-items: center; }
+  .source svg { width: 22px; height: 22px; display: block; }
+
+  /* segmented control */
+  .segmented { display: inline-flex; background: var(--panel-2); border-radius: var(--r-sm); padding: 3px; gap: 2px; }
+  .segmented button {
+    font-size: 12.5px; font-weight: 500; color: var(--ink-2);
+    border: 0; background: transparent; padding: 5px 12px; min-height: 28px; border-radius: 4px;
+    transition: background .12s, color .12s;
+  }
+  .segmented button[aria-pressed="true"] {
+    background: var(--panel); color: var(--accent); box-shadow: 0 1px 2px rgba(20,26,23,.14);
+  }
+
+  /* ---- menus ---- */
+  .menu-host { position: relative; }
+  .menu {
+    position: absolute; top: calc(100% + 6px); min-width: 224px; z-index: 30;
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md);
+    box-shadow: 0 6px 22px rgba(20,26,23,.16); padding: 6px;
+    display: none; flex-direction: column; gap: 1px;
+  }
+  .menu.right { right: 0; }
+  .menu.left { left: 0; }
+  .menu.up { top: auto; bottom: calc(100% + 6px); }
+  .menu.show { display: flex; }
+  .mi {
+    font-size: 13px; font-weight: 500; color: var(--ink); text-align: left;
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 6px; border: 0; background: transparent; width: 100%;
+    transition: background .1s;
+  }
+  .mi:hover { background: var(--panel-2); }
+  .mi svg { width: 16px; height: 16px; flex: none; color: var(--ink-2); }
+  .mi--danger { color: var(--def); }
+  .mi--danger svg { color: var(--def); }
+  .mi .trail { margin-left: auto; color: var(--ink-2); font-size: 11px; }
+  .mi .row-x {
+    margin-left: auto; width: 26px; height: 26px; border-radius: 5px; flex: none;
+    display: inline-flex; align-items: center; justify-content: center; color: var(--ink-2);
+  }
+  .mi .row-x:hover { background: var(--def-weak); color: var(--def); }
+  .mi .row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .m-sec { font-size: 10px; font-weight: 600; letter-spacing: .13em; text-transform: uppercase; color: var(--ink-2); padding: 9px 10px 4px; }
+  .m-div { height: 1px; background: var(--line); margin: 5px 2px; }
+  .m-hint { font-size: 11px; color: var(--ink-2); padding: 2px 10px 6px; }
+  .m-empty { font-size: 12px; color: var(--ink-2); padding: 6px 10px; }
+  .mi--switch { cursor: pointer; }
+  .mi-sw { margin-left: auto; width: 34px; height: 19px; border-radius: 999px; background: var(--line); position: relative; flex: none; transition: background .16s; }
+  .mi-sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 15px; height: 15px; border-radius: 50%; background: var(--panel); box-shadow: 0 1px 2px rgba(0,0,0,.3); transition: transform .16s; }
+  .mi--switch[aria-checked="true"] .mi-sw { background: var(--accent); }
+  .mi--switch[aria-checked="true"] .mi-sw::after { transform: translateX(15px); }
+
+  main { position: relative; flex: 1; min-height: 0; }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+
+  footer {
+    background: var(--panel); border-top: 1px solid var(--line);
+    padding: 10px 14px max(10px, env(safe-area-inset-bottom));
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .transport { display: flex; align-items: center; gap: 10px; }
+  /* fork cluster docked at the transport's left edge */
+  .fork-cluster { display: flex; align-items: center; gap: 6px; position: relative; }
+  #app.forked .fork-only { display: none; }
+  .branch-only { display: none; }
+  #app.forked .branch-only { display: flex; align-items: center; gap: 6px; }
+  .branch-sel {
+    font-size: 12.5px; font-weight: 500; color: var(--ink);
+    border: 1px solid var(--line); background: transparent; border-radius: var(--r-sm);
+    padding: 6px 8px; display: inline-flex; align-items: center; gap: 6px; min-height: 34px; max-width: 130px;
+  }
+  /* play is secondary — the scrubber is the primary interaction, so play is a
+     quiet icon, not a filled accent disc */
+  .play-btn {
+    flex: none; width: 30px; height: 30px; border-radius: var(--r-sm); padding: 0;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: transparent; border: 1px solid transparent; color: var(--ink-2);
+    transition: background .12s, color .12s;
+  }
+  .play-btn:hover { background: var(--panel-2); color: var(--ink); }
+  .play-btn:active { transform: translateY(1px); }
+  .play-btn svg { width: 16px; height: 16px; display: block; }
+  .time {
+    font-variant-numeric: tabular-nums; font-size: 12px; color: var(--ink-2);
+    width: 44px; flex: none; text-align: center;
+  }
+  .scrub {
+    position: relative; flex: 1; height: 44px; display: flex; align-items: center; min-width: 60px;
+  }
+  .scrub .track { position: absolute; left: 0; right: 0; height: 9px; border-radius: 5px; background: var(--panel-2); border: 1px solid var(--line); }
+  .scrub .fill { position: absolute; left: 0; height: 9px; border-radius: 5px; background: var(--accent); }
+  .scrub .forkMark {
+    position: absolute; width: 3px; height: 26px; border-radius: 1.5px;
+    background: var(--ink); transform: translateX(-1.5px); pointer-events: none;
+  }
+  .scrub .thumb {
+    position: absolute; width: 26px; height: 26px; border-radius: 50%;
+    background: var(--accent); border: 3px solid var(--panel); box-shadow: 0 2px 10px rgba(20,26,23,.35);
+    transform: translateX(-13px);
+  }
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--ink-2); }
+  .legend .sw { display: inline-flex; align-items: center; gap: 5px; }
+  .legend .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+
+  #dataPanel {
+    position: absolute; inset: 0; background: var(--panel); z-index: 20;
+    display: none; flex-direction: column;
+  }
+  #dataPanel.open { display: flex; }
+  #dataPanel .bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  #dataPanel .bar strong { font-size: 13px; margin-right: auto; }
+  #dataPanel pre {
+    margin: 0; padding: 14px; overflow: auto; flex: 1; font-size: 11.5px; line-height: 1.5;
+    font-family: ui-monospace, "SF Mono", Menlo, monospace; color: var(--ink-2); white-space: pre;
+  }
+
+  #toast {
+    position: absolute; bottom: 108px; left: 50%; transform: translateX(-50%) translateY(8px);
+    background: var(--ink); color: var(--paper); font-size: 12.5px; font-weight: 500;
+    padding: 7px 13px; border-radius: 20px; opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <span class="word">DrillPal</span>
+
+    <div class="grp">
+      <button class="ib" id="btnUndo" aria-label="Undo" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-1"/></svg>
+      </button>
+      <button class="ib" id="btnRedo" aria-label="Redo" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h1"/></svg>
+      </button>
+    </div>
+
+    <div class="divider"></div>
+
+    <button class="b" id="btnArrange">Arrange</button>
+
+    <div class="menu-host">
+      <button class="b" id="btnClearMenu" aria-haspopup="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/></svg>
+        Clear
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <div class="menu left" id="menuClear">
+        <button class="mi" id="btnClear">Clear lines <span class="trail">moves + passes</span></button>
+        <button class="mi" id="btnClearNotes">Clear notes</button>
+        <div class="m-div"></div>
+        <button class="mi mi--danger" id="btnClearAll">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/></svg>
+          Clear all ink
+        </button>
+      </div>
+    </div>
+
+    <div class="spacer"></div>
+
+    <div class="menu-host">
+      <button class="b" id="btnLibrary" aria-haspopup="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7a2 2 0 0 1 2-2h4l2 2h6a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/></svg>
+        Library
+        <svg class="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+      </button>
+      <div class="menu right" id="menuLibrary">
+        <button class="mi mi--danger" id="btnBlank">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+          New / blank play <span class="trail">confirm</span>
+        </button>
+        <div class="m-sec">Plays</div>
+        <button class="mi" id="btnSavePlay">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2Z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg>
+          Save play…
+        </button>
+        <div id="libPlays"></div>
+        <div class="m-sec">Formations</div>
+        <p class="m-hint">Save a formation from the Arrange band.</p>
+        <div id="libFormations"></div>
+      </div>
+    </div>
+
+    <div class="menu-host">
+      <button class="ib" id="btnMore" aria-label="More" aria-haspopup="true">
+        <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+      </button>
+      <div class="menu right" id="menuMore">
+        <div class="mi mi--switch" id="btnGhosts" role="switch" aria-checked="true" tabindex="0">Ghosts<span class="mi-sw"></span></div>
+        <div class="mi mi--switch" id="btnNumbers" role="switch" aria-checked="false" tabindex="0">Player numbers<span class="mi-sw"></span></div>
+        <div class="m-div"></div>
+        <button class="mi" id="btnData">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>
+          Play data…
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <div class="arrange-band" id="arrangeBand">
+    <div class="segmented" id="segArrange">
+      <button id="btnAddPlayer" aria-pressed="true">Add player</button>
+      <button id="btnRemove" aria-pressed="false">Remove</button>
+    </div>
+    <button class="b b--quiet" id="btnSaveFormation">Save formation</button>
+    <div class="band-div"></div>
+    <span class="band-label">Drag on</span>
+    <button class="source" id="srcBall">
+      <span class="glyph"><svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="12" cy="12" r="9" fill="var(--ball)"/>
+        <g fill="none" stroke="rgba(26,16,6,.42)" stroke-width="1.1">
+          <path d="M12 3v18"/><path d="M3.3 12h17.4"/>
+          <path d="M5 6.4c3.4 2.6 3.4 8.6 0 11.2"/>
+          <path d="M19 6.4c-3.4 2.6-3.4 8.6 0 11.2"/>
+        </g>
+      </svg></span>Ball
+    </button>
+    <button class="source" id="srcCone">
+      <span class="glyph"><svg viewBox="0 0 24 24" aria-hidden="true">
+        <ellipse cx="12" cy="20.3" rx="8.6" ry="1.9" fill="var(--cone)"/>
+        <path d="M11 3.7c.6-.6 1.4-.6 2 0l4.3 15.1c-2.1.8-8.5.8-10.6 0z" fill="var(--cone)"/>
+        <g stroke="rgba(255,255,255,.82)" stroke-width="1.7" stroke-linecap="round">
+          <path d="M9.1 11.4h5.8"/><path d="M7.9 15.2h8.2"/>
+        </g>
+      </svg></span>Cone
+    </button>
+  </div>
+
+  <main>
+    <canvas id="court"></canvas>
+    <div id="toast"></div>
+
+    <div id="dataPanel">
+      <div class="bar">
+        <strong>Play data</strong>
+        <button id="btnCopy" class="b b--quiet">Copy JSON</button>
+        <button id="btnCloseData" class="b b--primary">Done</button>
+      </div>
+      <pre id="dataOut"></pre>
+    </div>
+  </main>
+
+  <footer>
+    <div class="transport">
+      <div class="fork-cluster">
+        <button class="ib fork-only" id="btnFork" aria-label="Fork here">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="10" r="2.5"/><path d="M6 8.5v7"/><path d="M6 12h6a3 3 0 0 0 3-3v-.5"/></svg>
+        </button>
+        <div class="branch-only">
+          <select class="branch-sel" id="selBranch"></select>
+          <button class="ib" id="btnAddBranch" aria-label="Add branch">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+          </button>
+          <div class="menu-host">
+            <button class="ib" id="btnForkMenu" aria-label="Branch options" aria-haspopup="true">
+              <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
+            </button>
+            <div class="menu left up" id="menuFork">
+              <button class="mi mi--danger" id="btnDeleteBranch">Delete branch</button>
+              <button class="mi mi--danger" id="btnRemoveFork">Remove fork <span class="trail">confirm</span></button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <button class="play-btn" id="btnPlay" aria-label="Play">
+        <svg id="playIcon" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5v14l11-7z"/></svg>
+      </button>
+      <div class="time" id="timeOut">0.0s</div>
+      <div class="scrub" id="scrub">
+        <div class="track"></div>
+        <div class="fill" id="scrubFill"></div>
+        <div class="forkMark" id="forkMark" style="display:none"></div>
+        <div class="thumb" id="scrubThumb"></div>
+      </div>
+      <div class="time" id="totalOut">8.0s</div>
+    </div>
+    <div class="legend">
+      <span class="sw"><span class="dot" style="background:var(--accent)"></span>move</span>
+      <span class="sw"><span class="dot" style="background:var(--pass)"></span>pass</span>
+      <span class="sw"><span class="dot" style="background:var(--shot)"></span>shot</span>
+      <span class="sw"><span class="dot" style="background:var(--ink)"></span>note</span>
+    </div>
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+/* ============================================================
+   DrillPal ink prototype — phase 01.
+   Tests: (1) does ink authoring feel like a marker, and
+          (2) is the resulting play document clean enough to
+              be the thing a coach later sells and a buyer edits.
+
+   Input model (v2, after first-use feedback):
+     - Draw from a PLAYER  -> a move. One kind only — no cut vs
+       screen distinction. The coach communicates that nuance with
+       a note or voiceover, not a diagram type.
+     - Draw from the BALL  -> a pass (ends on a player) or a shot
+       (ends anywhere else, e.g. near the hoop). Shot vs pass is
+       read from where the stroke lands, never chosen manually.
+     - Draw on EMPTY FLOOR -> a note (unchanged).
+     - The ball is not an independently-drawable token. It rides
+       with whoever holds it for ANY move that player makes — never
+       gated on stroke shape, because a ball-holder who cuts straight
+       without "dribble ink" must not leave the ball behind.
+     - Tap any line to delete it. No chip, no cycling: now that each
+       stroke has exactly one possible kind, there's nothing to cycle.
+     - Arrange mode: an explicit, deliberate exception to "no modes" —
+       setting up starting positions really is a different task than
+       drawing the play. Drag players to place them, tap a player to
+       hand them the ball, at time zero only.
+     - Strokes whose time window has already passed (relative to the
+       scrub position) render muted grey instead of full color, to
+       fight clutter without ever making a mark disappear.
+
+   Out of scope on purpose: accounts, voiceover, video export,
+   saved playbooks. See conversation notes / project memory.
+   ============================================================ */
+
+const canvas = document.getElementById("court");
+const ctx = canvas.getContext("2d");
+
+const OFFENSE_R = 15, DEFENSE_R = 13, BALL_R = 8, CONE_R = 10;
+const MAX_BALLS_PER_PLAYER = 2; // e.g. 2-ball dribbling drills
+
+// Palette lookup, CACHED. getComputedStyle(document.documentElement) forces
+// a full style recalculation, and this is called from ~50 sites — several
+// inside per-token / per-segment draw loops, so a single render() was
+// triggering dozens of them (33 measured on a 6-token play, ~15ms/frame on
+// a desktop, far worse on an iPad). The values only change when the colour
+// scheme flips, so resolve each once and reuse it; refreshPalette() below
+// clears the cache on a theme change.
+let _cssVarCache = Object.create(null);
+function getCssVar(name) {
+  let v = _cssVarCache[name];
+  if (v === undefined) {
+    v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    _cssVarCache[name] = v;
+  }
+  return v;
+}
+function refreshPalette() {
+  _cssVarCache = Object.create(null);
+  render();
+}
+// Dark/light can flip while the app is open (iPadOS appearance schedule).
+if (window.matchMedia) {
+  const mq = window.matchMedia("(prefers-color-scheme: dark)");
+  const onSchemeChange = () => refreshPalette();
+  if (mq.addEventListener) mq.addEventListener("change", onSchemeChange);
+  else if (mq.addListener) mq.addListener(onSchemeChange); // older WebKit
+}
+
+// ---------- state ----------
+const state = {
+  tokens: [],       // offense/defense only: {id, kind, label, fx, fy, homeX, homeY, segments:[{id,startT,endT,points}]}
+  balls: [],        // {id, initialHolderId, transfers:[{id,startT,endT,fromId,toId(null=shot),points}]} — a player can hold up to 2
+  cones: [],        // {id, fx, fy} — setup-only, no timeline segments; a cone never moves once placed, so unlike tokens it needs no cached homeX/homeY, position is just courtPt(fx,fy) live every frame
+  annotations: [],  // {id, t, points:[{x,y}], life}
+  currentTime: 0,
+  totalDuration: 8000,
+  playing: false,
+  arranging: false,
+  ghostsEnabled: true,
+  numbersEnabled: false, // session UI preference like ghostsEnabled, not part of snapshotDocument — a pure DISPLAY toggle (see drawToken); every token gets a number regardless, this only shows/hides it
+  // One global fork point per play (no nesting, no per-token forks — see
+  // project notes). token.segments/ball.transfers always hold the ACTIVE
+  // branch's full timeline (shared prefix + that branch's own
+  // continuation), exactly like an unforked play — every existing
+  // render/hit-test/export consumer needs zero changes. state.branches
+  // stores each OTHER branch's continuation (entries with startT >=
+  // forkAt) while it isn't active; switchBranch swaps the live arrays'
+  // post-forkAt tail in and out. forkAt === null means "not forked."
+  forkAt: null,
+  branches: [],       // {id, name, tokens:{[tokenId]: segments[]}, balls:{[ballId]: transfers[]}, notes:[]} — notes is a FULL-timeline layer per branch, not split at forkAt like tokens/balls
+  activeBranchId: null,
+  preforkNotes: null, // snapshot of state.annotations at the moment createFork() ran; restored by removeFork()
+};
+
+let activeStroke = null;   // in-progress ink capture
+let activeDrag = null;     // in-progress arrange-mode drag
+let activeBallDrag = null; // {pointerId, ball, isNew, pt} — dragging a ball onto/off a player (Arrange mode)
+let activeConeDrag = null; // {pointerId, cone, isNew, pt} — dragging a cone onto/off the court (Arrange mode); no "reassign to a target" step like the ball has, since a cone has no holder — any drop inside the court just (re)positions it there, any drop outside removes it
+// Both trays sit just inside the court's top-left corner (recomputed in
+// resize(), since court.x/y move with the letterboxed layout) — moved
+// there 2026-08-26 after the ball tray was reported "hidden in the
+// corner" at a fixed (24,24) canvas point, off in the letterbox gutter.
+const ballTrayPos = { x: 0, y: 0 };
+const coneTrayPos = { x: 0, y: 0 };
+let arrangeMode = "player"; // "player" | "remove" — Arrange mode's two mutually-exclusive states; always exactly one
+let lastPlayTs = null;
+let idSeq = 1;
+const nextId = () => idSeq++;
+
+// ---------- undo/redo (deep module: everyone else just calls pushHistory) ----------
+// A full snapshot per edit, not per-field patches. The "redrawing from now
+// overwrites the future" rule already makes a clean inverse-operation for
+// each edit awkward to define; snapshotting the whole document sidesteps
+// that entirely and is cheap at prototype scale.
+let history = [];
+let historyIndex = -1;
+
+function snapshotDocument() {
+  return JSON.parse(JSON.stringify({
+    tokens: state.tokens, balls: state.balls, cones: state.cones,
+    annotations: state.annotations, totalDuration: state.totalDuration,
+    forkAt: state.forkAt, branches: state.branches, activeBranchId: state.activeBranchId,
+    preforkNotes: state.preforkNotes,
+  }));
+}
+
+function resetHistory() {
+  history = [snapshotDocument()];
+  historyIndex = 0;
+  updateUndoRedoButtons();
+}
+
+function pushHistory() {
+  history = history.slice(0, historyIndex + 1);
+  history.push(snapshotDocument());
+  historyIndex = history.length - 1;
+  updateUndoRedoButtons();
+}
+
+function restoreSnapshot(snap) {
+  const c = JSON.parse(JSON.stringify(snap));
+  state.tokens = c.tokens; state.balls = c.balls; state.cones = c.cones;
+  state.annotations = c.annotations; state.totalDuration = c.totalDuration;
+  state.forkAt = c.forkAt ?? null; state.branches = c.branches ?? []; state.activeBranchId = c.activeBranchId ?? null;
+  state.preforkNotes = c.preforkNotes ?? null;
+}
+
+function undo() {
+  if (historyIndex <= 0) return;
+  historyIndex--;
+  restoreSnapshot(history[historyIndex]);
+  render(); updateDataPanel(); updateUndoRedoButtons(); refreshForkUI();
+}
+
+function redo() {
+  if (historyIndex >= history.length - 1) return;
+  historyIndex++;
+  restoreSnapshot(history[historyIndex]);
+  render(); updateDataPanel(); updateUndoRedoButtons(); refreshForkUI();
+}
+
+function updateUndoRedoButtons() {
+  document.getElementById("btnUndo").disabled = historyIndex <= 0;
+  document.getElementById("btnRedo").disabled = historyIndex >= history.length - 1;
+}
+
+// ---------- court geometry ----------
+// Real FIBA half-court dimensions, in meters. Everything drawCourt()
+// draws, plus the hoop position used for shot-detection/ball-resting
+// logic elsewhere, derives from these — not from arbitrary fractions.
+const FIBA = {
+  WIDTH: 15, HALF_LENGTH: 14,
+  LANE_W: 4.9, LANE_L: 5.8,
+  FT_CIRCLE_R: 1.8,
+  THREE_PT_R: 6.75, THREE_PT_CORNER_DX: 6.6, // corner line sits 0.9m inside the sideline
+  HOOP_DIST: 1.575, RIM_R: 0.225,
+  BACKBOARD_W: 1.8, BACKBOARD_DIST: 1.2,
+  RESTRICTED_AREA_R: 1.25,
+  CENTER_CIRCLE_R: 1.8,
+};
+const FIBA_ASPECT = FIBA.WIDTH / FIBA.HALF_LENGTH; // > 1: real court is wider than it is long (half)
+
+let court = { x: 0, y: 0, w: 0, h: 0 };
+
+// Pixels-per-meter. Exact for both axes since resize() letterboxes the
+// court box to FIBA_ASPECT — never stretches it — so a real circle
+// stays a circle.
+function courtScale() { return court.w / FIBA.WIDTH; }
+
+// The point on the floor under the center of the rim — everything
+// hoop-relative (3pt arc, shot detection, ball resting position) is
+// measured from here.
+function hoopPoint() {
+  const scale = courtScale();
+  return { x: court.x + court.w / 2, y: court.y + court.h - FIBA.HOOP_DIST * scale };
+}
+
+// Cached canvas geometry — resize() is the ONLY place that reads canvas
+// layout. render() and localPoint() must never call getBoundingClientRect()
+// themselves: that forces a synchronous reflow on every frame / pointer
+// sample, which the redesigned (heavier) chrome turned into a real stutter.
+let canvasCssW = 0, canvasCssH = 0, canvasLeft = 0, canvasTop = 0;
+
+function resize() {
+  const dpr = Math.min(window.devicePixelRatio || 1, 3);
+  const rect = canvas.getBoundingClientRect();
+  // Guards a 0×0 (or briefly negative, once padding is subtracted below)
+  // measurement — court.w would go negative and every FIBA-scaled arc
+  // radius with it. Shouldn't happen now that ResizeObserver (see boot,
+  // below) only calls this once the canvas actually has real dimensions,
+  // but costs nothing to keep as a backstop.
+  if (rect.width <= 0 || rect.height <= 0) return;
+  canvasCssW = rect.width; canvasCssH = rect.height;
+  canvasLeft = rect.left; canvasTop = rect.top;
+  canvas.width = Math.round(rect.width * dpr);
+  canvas.height = Math.round(rect.height * dpr);
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const pad = 28;
+  const availW = rect.width - pad * 2;
+  const availH = rect.height - pad * 2;
+  // True FIBA half-court proportions (15m wide x 14m long) — letterboxed
+  // to fit, not stretched, so every marking drawCourt() draws stays a
+  // real circle/arc instead of an ellipse.
+  let w = availW, h = w / FIBA_ASPECT;
+  if (h > availH) { h = availH; w = h * FIBA_ASPECT; }
+
+  const blockX = (rect.width - w) / 2;
+  const blockTop = (rect.height - h) / 2;
+  court = { x: blockX, y: blockTop, w, h };
+
+  // Just outside the court's own top-left corner, in the letterbox
+  // gutter — close to the court (unlike the old fixed (24,24) canvas
+  // point, which could land far from it) but not on top of it. Safe
+  // against clipping off-screen: `pad` above guarantees court.x/y are
+  // never less than 28, and this offset stays inside that.
+  ballTrayPos.x = court.x - 24; ballTrayPos.y = court.y + 34;
+  coneTrayPos.x = court.x - 24; coneTrayPos.y = court.y + 78;
+
+  for (const t of state.tokens) {
+    const p = courtPt(t.fx, t.fy);
+    t.homeX = p.x; t.homeY = p.y;
+  }
+  render();
+}
+
+function courtPt(fx, fy) {
+  return { x: court.x + fx * court.w, y: court.y + fy * court.h };
+}
+
+// One shared sequence across every token regardless of color (color is
+// cosmetic, not "team" — see the Arrange-mode role rework). Only ever
+// grows: a removed player's number is retired, not reused, and nothing
+// already assigned ever shifts — "next" is always one past the highest
+// number seen so far, gaps included.
+function nextPlayerNumber() {
+  let max = 0;
+  for (const t of state.tokens) {
+    const n = parseInt(t.label, 10);
+    if (!isNaN(n)) max = Math.max(max, n);
+  }
+  return max + 1;
+}
+
+// Creates and places a token at a canvas point — Add-Player mode's
+// tap-to-place. Always starts offense; the repeat-tap cycle in
+// finishPointer takes it from there (blue → red → removed). Every token
+// gets the next number unconditionally — state.numbersEnabled is purely
+// a display toggle (see drawToken), not an assignment gate, so this
+// never needs a separate backfill pass when the toggle is flipped on.
+function stampToken(kind, pt) {
+  const fx = clamp((pt.x - court.x) / court.w, 0, 1);
+  const fy = clamp((pt.y - court.y) / court.h, 0, 1);
+  const p = courtPt(fx, fy);
+  const label = String(nextPlayerNumber());
+  const token = { id: nextId(), kind, label, fx, fy, homeX: p.x, homeY: p.y, segments: [], roleChanges: [] };
+  state.tokens.push(token);
+  return token;
+}
+
+// Deletes a placed token (Arrange-only — either Remove mode's direct tap,
+// or the third step of Add-Player's blue→red→removed repeat-tap cycle). A
+// dangling ball reference to a removed token would crash render() the
+// same way the splitByHolder and boot-time bugs did earlier this session
+// (tokenPosAt on a token that no longer exists) — so any ball this token
+// currently holds, or ever appears in as a pass/shot endpoint, is deleted
+// with it rather than left pointing at nothing.
+//
+// State-mutation only, no render/history/toast side effects here —
+// matches switchRole's convention, since the repeat-tap cycle already has
+// its own shared render()/pushHistory() at the end of finishPointer and
+// calling this doesn't need a second one.
+function removeTokenState(token) {
+  state.tokens = state.tokens.filter(t => t !== token);
+  state.balls = state.balls.filter(b =>
+    b.initialHolderId !== token.id &&
+    !b.transfers.some(tr => tr.fromId === token.id || tr.toId === token.id)
+  );
+  state.totalDuration = recomputeDuration();
+  state.currentTime = clamp(state.currentTime, 0, state.totalDuration);
+  toast("removed", getCssVar("--def"));
+}
+
+// One-shot version for Remove mode's pointerdown handler, which returns
+// immediately with nothing else to trigger the usual render/history pass.
+function removeToken(token) {
+  removeTokenState(token);
+  render(); updateDataPanel(); pushHistory();
+}
+
+// One-shot, for Remove mode's pointerdown handler — a cone has no ball
+// cascade to worry about, so unlike removeToken/removeTokenState this
+// doesn't need a separate state-only variant (nothing else calls it from
+// inside a larger multi-step handler the way the Add-Player cycle does).
+function removeCone(cone) {
+  state.cones = state.cones.filter(c => c !== cone);
+  toast("removed", getCssVar("--def"));
+  render(); updateDataPanel(); pushHistory();
+}
+
+// ---------- saved formations (coach-named roster snapshots, persisted
+// to localStorage — replaces the old hardcoded 5-Out/Horns/+Red presets,
+// which rendered wrong positions and some relied on the numbered-label
+// system the Arrange overhaul dropped. Built-in presets, if any, will be
+// shipped on top of this system later, not hardcoded again. ----------
+const FORMATIONS_KEY = "drillpal.formations";
+
+function readSavedFormations() {
+  try { return JSON.parse(localStorage.getItem(FORMATIONS_KEY)) || {}; }
+  catch { return {}; }
+}
+function writeSavedFormations(formations) {
+  localStorage.setItem(FORMATIONS_KEY, JSON.stringify(formations));
+}
+
+function escapeHtml(s) {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+// Both saved-stuff lists live in the Library menu now (was a pair of
+// <select> + Load/Delete button trios in the toolbar). One renderer fills
+// both sections; the old refresh* names stay as thin aliases so every
+// existing call site keeps working.
+function libRowsHtml(names) {
+  if (!names.length) return '<div class="m-empty">None saved yet</div>';
+  return names.map((n) => {
+    const e = escapeHtml(n);
+    return `<button class="mi lib-row" data-name="${e}"><span class="row-name">${e}</span>` +
+      `<span class="row-x" data-del role="button" aria-label="Delete ${e}">` +
+      `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></span></button>`;
+  }).join("");
+}
+function renderLibraryMenu() {
+  document.getElementById("libPlays").innerHTML = libRowsHtml(Object.keys(readSavedPlays()).sort());
+  document.getElementById("libFormations").innerHTML = libRowsHtml(Object.keys(readSavedFormations()).sort());
+}
+function refreshFormationsSelect() { renderLibraryMenu(); }
+
+// Captures only what Arrange mode lets a coach set up: tokens (kind +
+// position), ball assignment(s), cones. Never called outside Arrange mode
+// (see btnSaveFormation's visibility) since fx/fy is only the true
+// "starting position" when nothing's been drawn on top of it yet.
+function saveFormation(name) {
+  const formations = readSavedFormations();
+  formations[name] = {
+    tokens: state.tokens.map((t) => ({ id: t.id, kind: t.kind, label: t.label, fx: t.fx, fy: t.fy })),
+    balls: state.balls.map((b) => ({ id: b.id, initialHolderId: b.initialHolderId })),
+    cones: state.cones.map((c) => ({ fx: c.fx, fy: c.fy })),
+  };
+  writeSavedFormations(formations);
+  refreshFormationsSelect();
+}
+
+function hasDrawnContent() {
+  return state.tokens.some((t) => t.segments.length > 0) ||
+    state.balls.some((b) => b.transfers.length > 0) ||
+    state.annotations.length > 0;
+}
+
+function loadSavedFormation(name) {
+  const f = readSavedFormations()[name];
+  if (!f) return;
+
+  state.tokens = [];
+  state.annotations = [];
+  state.balls = [];
+  state.cones = [];
+  state.currentTime = 0;
+  state.totalDuration = 8000;
+  state.forkAt = null; state.branches = []; state.activeBranchId = null; state.preforkNotes = null;
+
+  const idMap = new Map(); // saved token id -> freshly minted id, so a re-saved formation never collides with anything on the board
+  f.tokens.forEach((spec) => {
+    const id = nextId();
+    idMap.set(spec.id, id);
+    const p = courtPt(spec.fx, spec.fy);
+    state.tokens.push({
+      id, kind: spec.kind, label: spec.label,
+      fx: spec.fx, fy: spec.fy, homeX: p.x, homeY: p.y, segments: [], roleChanges: [],
+    });
+  });
+  f.balls.forEach((spec) => {
+    const holderId = idMap.get(spec.initialHolderId);
+    if (holderId == null) return;
+    state.balls.push({ id: nextId(), initialHolderId: holderId, transfers: [] });
+  });
+  f.cones.forEach((spec) => {
+    state.cones.push({ id: nextId(), fx: spec.fx, fy: spec.fy });
+  });
+
+  setArranging(false); // a loaded formation is fully placed already, whether or not you were mid-Arrange
+  render(); updateDataPanel();
+  resetHistory(); // a formation load is a fresh start, not an undoable step
+  refreshForkUI();
+}
+
+// ---------- saved plays (coach-named whole-play snapshots, persisted to
+// localStorage — the finished-diagram counterpart to saved formations
+// above. Stores snapshotDocument() verbatim: the exact structure
+// undo/redo already round-trips (tokens, balls, cones, notes, duration,
+// forkAt/branches), so recall is just restoreSnapshot() + a history
+// reset. Deliberately NOT buildPlayDocument() — that export is lossy
+// (decimated paths, label-keyed, drops branches) and can't reload
+// faithfully. Backend/sync, file import/export, and multi-branch export
+// stay deferred. ----------
+const PLAYS_KEY = "drillpal.plays";
+
+function readSavedPlays() {
+  try { return JSON.parse(localStorage.getItem(PLAYS_KEY)) || {}; }
+  catch { return {}; }
+}
+function writeSavedPlays(plays) {
+  localStorage.setItem(PLAYS_KEY, JSON.stringify(plays));
+}
+
+function refreshPlaysSelect() { renderLibraryMenu(); }
+
+function savePlay(name) {
+  const plays = readSavedPlays();
+  plays[name] = { savedAt: Date.now(), doc: snapshotDocument() };
+  writeSavedPlays(plays);
+  refreshPlaysSelect();
+}
+
+// Recall restores the whole document through the same path undo/redo
+// uses. currentTime isn't part of the snapshot, so reopen at t=0 (matches
+// loadSavedFormation). Not an undoable step — history starts fresh.
+function loadSavedPlay(name) {
+  const entry = readSavedPlays()[name];
+  if (!entry) return;
+  restoreSnapshot(entry.doc);
+  state.currentTime = 0;
+  setArranging(false);
+  render(); updateDataPanel();
+  resetHistory();
+  refreshForkUI();
+}
+
+function tokenById(id) { return state.tokens.find(t => t.id === id) || null; }
+
+// ---------- forked plays (one global fork point, N named branches, no
+// nesting, no per-token forks — decision-making drills where a play
+// shares an identical prefix then splits at one moment: e.g. a
+// ball-handler drives or passes, and the coach wants both diagrammed as
+// branches from that point, not two separately-redrawn plays) ----------
+function branchById(id) { return state.branches.find(b => b.id === id) || null; }
+
+// Appends a branch's stored continuation onto the (already prefix-only)
+// live segments/transfers, restoring the normal "one full timeline" shape
+// every other function in the app already expects. Notes are handled
+// differently: unlike moves/passes, a note layer is NOT split at
+// forkAt — each branch owns an independent copy of the WHOLE annotations
+// timeline (see createFork), so this is a full replace, not a concat.
+function loadBranchIntoLiveState(branch) {
+  for (const t of state.tokens) {
+    t.segments = t.segments.concat(branch.tokens[t.id] || []).sort((a, b) => a.startT - b.startT);
+  }
+  for (const b of state.balls) {
+    b.transfers = b.transfers.concat(branch.balls[b.id] || []).sort((a, b) => a.startT - b.startT);
+  }
+  state.annotations = (branch.notes || []).slice();
+}
+
+// Peels the live post-forkAt tail (whichever branch is currently active)
+// back out into branch storage, before switching away from it. Notes:
+// the WHOLE current annotations array becomes this branch's layer.
+function saveLiveStateIntoBranch(branch) {
+  for (const t of state.tokens) branch.tokens[t.id] = t.segments.filter(s => s.startT >= state.forkAt);
+  for (const b of state.balls) branch.balls[b.id] = b.transfers.filter(tr => tr.startT >= state.forkAt);
+  branch.notes = state.annotations.slice();
+}
+
+function stripToPrefix() {
+  for (const t of state.tokens) t.segments = t.segments.filter(s => s.startT < state.forkAt);
+  for (const b of state.balls) b.transfers = b.transfers.filter(tr => tr.startT < state.forkAt);
+}
+
+// Locks in the current scrub position as the fork point. Whatever's
+// already drawn past it becomes branch A's continuation (so drawing one
+// path first, then forking to add an alternative, works naturally);
+// branch B starts empty. Notes work differently from moves/passes here:
+// there's no shared/locked "prefix" for them at all — each branch gets
+// its OWN full-timeline note layer, and branch A's starts as a copy of
+// whatever notes existed at the moment of forking (so nothing already
+// drawn is lost), while branch B starts blank. A coach adding a later
+// branch has to redraw any early notes they want it to carry too — an
+// explicit, accepted tradeoff for keeping each branch's notes genuinely
+// independent rather than re-introducing a locked shared layer.
+function createFork() {
+  if (state.forkAt != null) return; // one fork per play
+  const forkAt = state.currentTime;
+  const notesAtForkTime = JSON.parse(JSON.stringify(state.annotations));
+  const branchA = { id: nextId(), name: "A", tokens: {}, balls: {}, notes: notesAtForkTime };
+  const branchB = { id: nextId(), name: "B", tokens: {}, balls: {}, notes: [] };
+  for (const t of state.tokens) {
+    branchA.tokens[t.id] = t.segments.filter(s => s.startT >= forkAt);
+    branchB.tokens[t.id] = [];
+  }
+  for (const b of state.balls) {
+    branchA.balls[b.id] = b.transfers.filter(tr => tr.startT >= forkAt);
+    branchB.balls[b.id] = [];
+  }
+  state.preforkNotes = notesAtForkTime; // restored by removeFork; see there
+  state.forkAt = forkAt;
+  state.branches = [branchA, branchB];
+  state.activeBranchId = branchA.id;
+  stripToPrefix(); // trims live arrays to just the prefix; the tail just captured into branchA gets re-added next, unchanged
+  loadBranchIntoLiveState(branchA); // notes already match — this just re-confirms the same array
+  state.totalDuration = recomputeDuration();
+  render(); updateDataPanel(); pushHistory();
+}
+
+// Pure branch-switch mechanics, no render/history side effects — shared
+// by switchBranch (user-triggered) and deleteBranch (which needs to
+// switch away from a deleted branch as part of one atomic history step,
+// not two).
+function activateBranch(newId) {
+  if (newId === state.activeBranchId) return;
+  const oldBranch = branchById(state.activeBranchId);
+  if (oldBranch) saveLiveStateIntoBranch(oldBranch);
+  stripToPrefix();
+  const newBranch = branchById(newId);
+  if (!newBranch) return;
+  loadBranchIntoLiveState(newBranch);
+  state.activeBranchId = newId;
+  state.totalDuration = recomputeDuration();
+  state.currentTime = clamp(state.currentTime, 0, state.totalDuration);
+}
+
+function switchBranch(newId) {
+  if (state.forkAt == null) return;
+  activateBranch(newId);
+  render(); updateDataPanel(); pushHistory();
+}
+
+function addBranch() {
+  if (state.forkAt == null) return null;
+  const used = new Set(state.branches.map(b => b.name));
+  let code = "A".charCodeAt(0);
+  while (used.has(String.fromCharCode(code))) code++;
+  // Starts blank, same as branch B — only the very first fork has an
+  // unambiguous "what existed before" to seed from; a branch added later
+  // could be copying from any of several already-diverged branches, so
+  // it doesn't guess.
+  const branch = { id: nextId(), name: String.fromCharCode(code), tokens: {}, balls: {}, notes: [] };
+  for (const t of state.tokens) branch.tokens[t.id] = [];
+  for (const b of state.balls) branch.balls[b.id] = [];
+  state.branches.push(branch);
+  // Switch straight into the new (empty) branch — otherwise it just sits
+  // in the dropdown with nothing on screen changing, easy to miss.
+  activateBranch(branch.id);
+  render(); updateDataPanel(); pushHistory();
+  return branch;
+}
+
+// Discards every branch and the fork point itself, leaving only the
+// (already-live) shared prefix. The prefix was locked read-only the
+// moment a fork existed, so this is the only way back to editing it.
+// Notes revert to the pre-fork snapshot — every branch's own note layer
+// (including whichever is currently active) is branch-specific content,
+// exactly like a branch's post-fork moves/passes, so Remove Fork discards
+// it the same way.
+function removeFork() {
+  if (state.forkAt == null) return;
+  stripToPrefix();
+  state.annotations = (state.preforkNotes || []).slice();
+  state.forkAt = null;
+  state.branches = [];
+  state.activeBranchId = null;
+  state.preforkNotes = null;
+  state.totalDuration = recomputeDuration();
+  state.currentTime = clamp(state.currentTime, 0, state.totalDuration);
+  render(); updateDataPanel(); pushHistory();
+}
+
+// Folds a surviving branch's continuation (segments/transfers AND its own
+// note layer) into the live timeline as the new permanent content, then
+// removes the fork structure entirely — used when a delete would
+// otherwise leave exactly one "branch," which isn't really a decision
+// point anymore. Unlike removeFork, this keeps content rather than
+// reverting to the pre-fork snapshot, since the survivor's branch is what
+// the coach chose to continue with.
+function collapseForkKeeping(keepBranchId) {
+  activateBranch(keepBranchId); // no-op if it's already active; already swaps in the survivor's notes too
+  state.forkAt = null;
+  state.branches = [];
+  state.activeBranchId = null;
+  state.preforkNotes = null;
+}
+
+// Deletes one branch. With only 2 branches, deleting one would leave a
+// "fork" with a single option, so this collapses into the survivor
+// instead (same end state as Remove Fork, but keeping that branch's
+// content rather than discarding it). With 3+, it's a normal delete.
+function deleteBranch(branchId) {
+  if (state.forkAt == null) return;
+  const branch = branchById(branchId);
+  if (!branch) return;
+  if (state.branches.length <= 2) {
+    const survivor = state.branches.find((b) => b.id !== branchId);
+    collapseForkKeeping(survivor.id);
+  } else {
+    if (branchId === state.activeBranchId) {
+      const next = state.branches.find((b) => b.id !== branchId);
+      activateBranch(next.id);
+    }
+    state.branches = state.branches.filter((b) => b.id !== branchId);
+  }
+  state.totalDuration = recomputeDuration();
+  render(); updateDataPanel(); pushHistory();
+}
+
+// ---------- geometry helpers ----------
+function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+
+function pathLength(points) {
+  let d = 0;
+  for (let i = 1; i < points.length; i++) d += dist(points[i - 1], points[i]);
+  return d;
+}
+
+// ---------- render-time ink correction, fixed per stroke type, no toggle ----------
+// Moves keep their drawn shape (a cut vs. a curl is the information) with
+// light correction; passes either flatten to straight or, if the drawn arc
+// looks deliberate, get the same light correction as a move; notes render
+// untouched. Decided via a live visual comparison, not guessed.
+const MOVE_SMOOTH_ITERATIONS = 3;
+const PASS_STRAIGHT_THRESHOLD = 18; // px of drawn deviation from a straight line
+
+// Chaikin corner-cutting. Pins the first/last point exactly (each
+// iteration re-pushes them unchanged) so endpoint-dependent logic —
+// pass-target hit-testing, transferRenderPoints' remap anchors — never
+// sees a perturbed anchor.
+function chaikinSmooth(points, iterations) {
+  if (iterations <= 0 || points.length < 3) return points.slice();
+  let pts = points;
+  for (let iter = 0; iter < iterations; iter++) {
+    const out = [pts[0]];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[i], p1 = pts[i + 1];
+      out.push({ x: p0.x * 0.75 + p1.x * 0.25, y: p0.y * 0.75 + p1.y * 0.25 });
+      out.push({ x: p0.x * 0.25 + p1.x * 0.75, y: p0.y * 0.25 + p1.y * 0.75 });
+    }
+    out.push(pts[pts.length - 1]);
+    pts = out;
+  }
+  return pts;
+}
+
+// Memoized smoothing. chaikinSmooth is pure but expensive — ×3 iterations
+// turns a 60-point stroke into ~480 points, allocating ~840 objects — and
+// drawTokenPath called it for EVERY segment on EVERY frame, recomputing an
+// identical result. That was ~16ms/frame on a 6-token play (the whole of
+// render()'s cost) and is what made drawing feel laggy on the iPad.
+// Keyed on the points array's identity + length, so a replaced array (a
+// redrawn segment) or a mutated one (a truncated segment, see finishStroke)
+// misses the cache and recomputes. WeakMap: entries die with the segment.
+const _smoothCache = new WeakMap();
+function smoothedMovePoints(points) {
+  const hit = _smoothCache.get(points);
+  if (hit && hit.len === points.length) return hit.out;
+  const out = chaikinSmooth(points, MOVE_SMOOTH_ITERATIONS);
+  _smoothCache.set(points, { len: points.length, out });
+  return out;
+}
+
+// How far the drawn path strays from a straight line between its own
+// endpoints — used to tell a deliberate pass arc (lob/bounce) from
+// ordinary hand tremor on an intended-straight pass.
+function maxDeviationFromStraight(points) {
+  const a = points[0], b = points[points.length - 1];
+  const abx = b.x - a.x, aby = b.y - a.y, abLenSq = abx * abx + aby * aby || 1;
+  let max = 0;
+  for (const p of points) {
+    const t = ((p.x - a.x) * abx + (p.y - a.y) * aby) / abLenSq;
+    const projX = a.x + abx * t, projY = a.y + aby * t;
+    max = Math.max(max, dist(p, { x: projX, y: projY }));
+  }
+  return max;
+}
+
+// The drawn point that strays furthest from the straight line between the
+// array's own first/last point, plus where it falls along that line
+// (0..1) — used to bow a fitted curve through the same place the coach
+// actually drew the bend, not always the midpoint. Clamped away from the
+// very ends so the fit below never degenerates.
+function peakDeviationPoint(points) {
+  const a = points[0], b = points[points.length - 1];
+  const abx = b.x - a.x, aby = b.y - a.y, abLenSq = abx * abx + aby * aby || 1;
+  let best = a, bestDist = -1, bestT = 0.5;
+  for (const p of points) {
+    const t = ((p.x - a.x) * abx + (p.y - a.y) * aby) / abLenSq;
+    const projX = a.x + abx * t, projY = a.y + aby * t;
+    const d = dist(p, { x: projX, y: projY });
+    if (d > bestDist) { bestDist = d; best = p; bestT = t; }
+  }
+  return { point: best, t: clamp(bestT, 0.12, 0.88) };
+}
+
+// Fits ONE soft quadratic arc through start, the drawn path's own peak
+// bow point, and end — a zigzag or S-curve collapses to a single bend
+// (the biggest one), never rendered with its actual complexity. Sampled
+// into a polyline so it still works with the rest of the app's
+// point-array pipeline (hit-testing, arc-length splitting, the ball's own
+// animated position).
+function fitSoftArc(points, samples = 32) {
+  const p0 = points[0], p2 = points[points.length - 1];
+  const { point: peak, t } = peakDeviationPoint(points);
+  const denom = 2 * t * (1 - t) || 1e-6;
+  const cx = (peak.x - (1 - t) * (1 - t) * p0.x - t * t * p2.x) / denom;
+  const cy = (peak.y - (1 - t) * (1 - t) * p0.y - t * t * p2.y) / denom;
+  const out = [];
+  for (let i = 0; i <= samples; i++) {
+    const s = i / samples, mt = 1 - s;
+    out.push({
+      x: mt * mt * p0.x + 2 * s * mt * cx + s * s * p2.x,
+      y: mt * mt * p0.y + 2 * s * mt * cy + s * s * p2.y,
+    });
+  }
+  return out;
+}
+
+// constant-speed sample along a polyline at fraction [0,1]
+function pointAtFraction(points, frac) {
+  if (points.length === 1) return points[0];
+  const total = pathLength(points);
+  if (total === 0) return points[0];
+  let target = frac * total, acc = 0;
+  for (let i = 1; i < points.length; i++) {
+    const seg = dist(points[i - 1], points[i]);
+    if (acc + seg >= target) {
+      const t = seg === 0 ? 0 : (target - acc) / seg;
+      return {
+        x: points[i - 1].x + (points[i].x - points[i - 1].x) * t,
+        y: points[i - 1].y + (points[i].y - points[i - 1].y) * t,
+      };
+    }
+    acc += seg;
+  }
+  return points[points.length - 1];
+}
+
+function tokenPosAt(token, t) {
+  let pos = { x: token.homeX, y: token.homeY };
+  for (const seg of token.segments) {
+    if (t < seg.startT) break;
+    if (t >= seg.endT) { pos = seg.points[seg.points.length - 1]; continue; }
+    const frac = (t - seg.startT) / (seg.endT - seg.startT);
+    pos = pointAtFraction(seg.points, frac);
+  }
+  return pos;
+}
+
+// Role (offense/defense) is purely cosmetic — color only, no rules
+// attached (either can hold the ball) — but it's still time-varying:
+// a coach can switch a player's role mid-play (double-tap them outside
+// Arrange mode), recorded as a point on the timeline exactly like a
+// move, including "redrawing from now overwrites the future" (see
+// flipRoleAt). token.kind is just the base/starting role.
+function kindAt(token, t) {
+  let kind = token.kind;
+  for (const rc of token.roleChanges) {
+    if (t < rc.t) break;
+    kind = rc.kind;
+  }
+  return kind;
+}
+
+// Records a role flip exactly at t — the timeline equivalent of
+// Arrange-mode's switchRole. Same "redrawing from now overwrites the
+// future" rule as moves: any later already-recorded flip is dropped,
+// since this one now defines what happens from t onward.
+function flipRoleAt(token, t) {
+  const next = kindAt(token, t) === "offense" ? "defense" : "offense";
+  token.roleChanges = token.roleChanges.filter(rc => rc.t < t);
+  token.roleChanges.push({ t, kind: next });
+  toast("now " + (next === "offense" ? "blue" : "red"), getCssVar(next === "offense" ? "--off" : "--def"));
+}
+
+// ---------- ball possession (deep module: everything else just calls ballPosAt/holderAt) ----------
+function holderAt(ball, t) {
+  // possession ends the instant the ball is released, not when it arrives —
+  // nobody "has" a ball that's in the air.
+  for (const tr of ball.transfers) {
+    if (t >= tr.startT && t < tr.endT) return null;
+  }
+  let holder = ball.initialHolderId;
+  for (const tr of ball.transfers) { // kept sorted by startT
+    if (t >= tr.endT) holder = tr.toId; else break;
+  }
+  return holder;
+}
+
+// How many balls (other than `exclude`) a player currently holds —
+// used to enforce MAX_BALLS_PER_PLAYER when assigning/dragging one on.
+// Hot: splitByHolder calls this once per point of every segment, every
+// frame. Counts in place — the old `.filter().length` allocated an array
+// and a closure per call.
+function ballsHeldBy(tokenId, t, exclude) {
+  let n = 0;
+  for (const b of state.balls) {
+    if (b !== exclude && holderAt(b, t) === tokenId) n++;
+  }
+  return n;
+}
+
+// Maps pt through the similarity transform (translate+rotate+scale) that
+// carries segment [origA,origB] onto [newA,newB]. Used to "lead" a pass:
+// the drawn ink keeps its shape, but its start/end re-anchor to wherever
+// the passer and receiver actually are, which can differ from the frozen
+// pixels if either was moving.
+function remapPoint(pt, origA, origB, newA, newB) {
+  const ov = { x: origB.x - origA.x, y: origB.y - origA.y };
+  const nv = { x: newB.x - newA.x, y: newB.y - newA.y };
+  const oLen = Math.hypot(ov.x, ov.y) || 1;
+  const nLen = Math.hypot(nv.x, nv.y) || 1;
+  const rot = Math.atan2(nv.y, nv.x) - Math.atan2(ov.y, ov.x);
+  const scale = nLen / oLen;
+  const rel = { x: pt.x - origA.x, y: pt.y - origA.y };
+  const rotated = {
+    x: rel.x * Math.cos(rot) - rel.y * Math.sin(rot),
+    y: rel.x * Math.sin(rot) + rel.y * Math.cos(rot),
+  };
+  return { x: newA.x + rotated.x * scale, y: newA.y + rotated.y * scale };
+}
+
+// A pass's drawn ink keeps its shape but re-anchors to wherever the
+// passer/receiver actually are right now (remapPoint), applied to every
+// point so the visible line matches the animated ball exactly — rather
+// than remapping only the ball's own position and leaving the line
+// frozen at wherever it was originally drawn. Shots have no receiver to
+// lead, so they always render exactly as drawn.
+function transferRenderPoints(tr) {
+  if (tr.toId == null) return tr.points;
+  const from = tokenPosAt(tokenById(tr.fromId), tr.startT);
+  const to = tokenPosAt(tokenById(tr.toId), tr.endT);
+  const p0 = tr.points[0], p1 = tr.points[tr.points.length - 1];
+  return tr.points.map(pt => remapPoint(pt, p0, p1, from, to));
+}
+
+// The actual on-screen path for a transfer, after the fixed per-type
+// correction. Used everywhere a transfer's visible path matters (rendering,
+// the ball's own animated position, tap-to-delete) so none of them can
+// disagree about what's on screen.
+//   - SHOT: always a straight line, ball to rim. There's no coherent
+//     curved shot to infer from a shaky drawn line — an S or a bow is
+//     noise, and fitSoftArc would only amplify it. (Shots were left fully
+//     uncorrected before; "no receiver to straighten toward" justified
+//     skipping the REMAP, not skipping shape correction.)
+//   - PASS: straight, or — if the drawn arc clears PASS_STRAIGHT_THRESHOLD
+//     and reads as deliberate (bending around a defender) — a single soft
+//     arc. Never a raw zigzag/S. Classification reads the ORIGINAL drawn
+//     shape (tr.points, pre-remap) so intent doesn't change just because
+//     the receiver has since moved.
+function renderPointsForTransfer(tr) {
+  const points = transferRenderPoints(tr);
+  if (tr.toId == null) return [points[0], points[points.length - 1]]; // shot -> straight
+  const keepArc = maxDeviationFromStraight(tr.points) >= PASS_STRAIGHT_THRESHOLD;
+  return keepArc ? fitSoftArc(points) : [points[0], points[points.length - 1]];
+}
+
+// angleOffset (radians) fans out a second ball held by the same player
+// at the same instant, so two don't render fully overlapping — see
+// drawBall, the only caller that ever passes a non-zero value.
+function ballPosAt(ball, t, angleOffset = 0) {
+  for (const tr of ball.transfers) {
+    if (t >= tr.startT && t < tr.endT) {
+      const frac = (t - tr.startT) / (tr.endT - tr.startT);
+      const pos = pointAtFraction(renderPointsForTransfer(tr), frac);
+      return { pos, holderId: null, inFlight: true };
+    }
+  }
+  const holderId = holderAt(ball, t);
+  if (holderId == null) {
+    const last = ball.transfers[ball.transfers.length - 1];
+    const restPt = last ? last.points[last.points.length - 1] : { x: court.x + court.w / 2, y: court.y + court.h / 2 };
+    return { pos: restPt, holderId: null, inFlight: false };
+  }
+  const holder = tokenById(holderId);
+  const hp = tokenPosAt(holder, t);
+  // sits on the side facing the basket, overlapping the player by about
+  // a third of the ball's own diameter — close enough to read as "held",
+  // not floating beside them
+  const hoop = hoopPoint();
+  let dx = hoop.x - hp.x, dy = hoop.y - hp.y;
+  if (angleOffset) {
+    const c = Math.cos(angleOffset), s = Math.sin(angleOffset);
+    const ndx = dx * c - dy * s, ndy = dx * s + dy * c;
+    dx = ndx; dy = ndy;
+  }
+  const dlen = Math.hypot(dx, dy) || 1;
+  const tokenR = kindAt(holder, t) === "offense" ? OFFENSE_R : DEFENSE_R;
+  const off = tokenR + BALL_R - (BALL_R * 2) / 3;
+  return { pos: { x: hp.x + (dx / dlen) * off, y: hp.y + (dy / dlen) * off }, holderId, inFlight: false };
+}
+
+function nearHoop(pt, radius) {
+  return dist(pt, hoopPoint()) < (radius != null ? radius : court.w * 0.1);
+}
+
+// ---------- hit testing ----------
+function hitToken(pt, radius = 24) {
+  let best = null, bestD = Infinity;
+  for (const t of state.tokens) {
+    const p = tokenPosAt(t, state.currentTime);
+    const d = dist(pt, p);
+    if (d < radius && d < bestD) { best = t; bestD = d; }
+  }
+  return best;
+}
+
+// A real stylus/finger rarely lands on the exact same pixel twice — the
+// second tap of a double-tap needs more slack than a fresh tap, or
+// double-tap recognition becomes unreliable on real hardware even
+// though it works fine with a scripted/mouse double-click at one exact
+// point. If a recent tap already identified a token, check THAT token
+// specifically with a wider radius before falling back to a normal
+// (tighter) hit-test.
+function hitTokenForRepeatTap(pt, recentTap) {
+  if (recentTap) {
+    const recent = tokenById(recentTap.tokenId);
+    if (recent && dist(pt, tokenPosAt(recent, state.currentTime)) < 44) return recent;
+  }
+  return hitToken(pt);
+}
+
+// Finds whichever ball (if any) is nearest pt, at the current scrub
+// time — analogous to hitToken. Balls only exist once dragged onto a
+// player from the tray, so an empty state.balls just means none yet.
+function hitBall(pt, radius = 16) {
+  // tighter than a token: now that a ball overlaps its holder, a
+  // generous radius here would swallow the token's own tap target and
+  // make the player underneath impossible to grab for a move
+  let best = null, bestD = Infinity;
+  for (const ball of state.balls) {
+    const d = dist(pt, ballPosAt(ball, state.currentTime).pos);
+    if (d < radius && d < bestD) { best = ball; bestD = d; }
+  }
+  return best;
+}
+
+// Cones never move, so unlike hitToken/hitBall there's no timeline
+// position to look up — just the live courtPt(fx,fy).
+function hitCone(pt, radius = 20) {
+  let best = null, bestD = Infinity;
+  for (const cone of state.cones) {
+    const d = dist(pt, courtPt(cone.fx, cone.fy));
+    if (d < radius && d < bestD) { best = cone; bestD = d; }
+  }
+  return best;
+}
+
+function distToSeg(p, a, b) {
+  const l2 = dist(a, b) ** 2;
+  if (l2 === 0) return dist(p, a);
+  let t = ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / l2;
+  t = Math.max(0, Math.min(1, t));
+  return dist(p, { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) });
+}
+
+function closeToPolyline(pt, points, radius) {
+  for (let i = 1; i < points.length; i++) {
+    if (distToSeg(pt, points[i - 1], points[i]) < radius) return true;
+  }
+  return false;
+}
+
+// tap a move, a pass/shot, or a note -> deletes it. One kind per track now,
+// so there's nothing left to cycle; the only decision left is delete or not.
+function hitAnyStroke(pt, radius = 16) {
+  for (const token of state.tokens) {
+    for (const seg of token.segments) {
+      if (closeToPolyline(pt, seg.points, radius)) return { type: "move", owner: token, seg };
+    }
+  }
+  for (const ball of state.balls) {
+    for (const tr of ball.transfers) {
+      if (closeToPolyline(pt, renderPointsForTransfer(tr), radius)) return { type: "transfer", ball, seg: tr };
+    }
+  }
+  for (const a of state.annotations) {
+    if (closeToPolyline(pt, a.points, radius)) return { type: "note", seg: a };
+  }
+  return null;
+}
+
+// ---------- pointer capture: drawing ----------
+// Hottest function while drawing — called for every coalesced pointer
+// sample. Uses the canvas origin cached by resize() instead of
+// getBoundingClientRect(), which would force a synchronous reflow on every
+// sample (invisible on a tiny DOM, a real stutter once the chrome grew).
+// Safe: the app never scrolls (body is overflow:hidden) and resize() runs
+// on every layout change via the ResizeObserver.
+function localPoint(e) {
+  return { x: e.clientX - canvasLeft, y: e.clientY - canvasTop };
+}
+
+function pressureWidth(e) {
+  let p = e.pressure;
+  if (!p || p === 0) p = 0.5; // mouse / undetected-pen fallback (see project notes)
+  return 2.2 + p * 5.5;
+}
+
+// Once a real pencil has shown up in this session, any further touch on
+// the canvas is almost certainly a resting palm, not an intentional tap —
+// a device with no pencil never sets this, so pure-touch use is untouched.
+let penEverSeen = false;
+
+canvas.addEventListener("pointerdown", (e) => {
+  if (e.pointerType === "pen") penEverSeen = true;
+  if (e.pointerType === "touch" && penEverSeen) return;
+
+  if (state.playing) togglePlay(false);
+  canvas.setPointerCapture(e.pointerId);
+  const pt = localPoint(e);
+
+  if (state.arranging) {
+    // Remove mode: tapping a placed token OR cone deletes it outright,
+    // one click, regardless of the token's color. Checked first, ahead of
+    // every other Arrange gesture, so a tap can't be misread as the start
+    // of a reposition drag or the Add-Player cycle below. Cones keep
+    // their drag-off-court removal too (finishPointer) — this is just a
+    // faster alternative, exactly like Remove mode already is for tokens
+    // vs. their own drag-based paths.
+    if (arrangeMode === "remove") {
+      const token = hitToken(pt);
+      if (token) { removeToken(token); return; }
+      const cone = hitCone(pt);
+      if (cone) removeCone(cone);
+      return;
+    }
+    // Dragging an existing on-court ball: drop it on a different player
+    // to reassign, or off the court (or back onto the tray) to remove
+    // it. Checked first — the ball is small and overlaps its holder, so
+    // it needs priority over grabbing the token underneath.
+    const existingBall = hitBall(pt);
+    if (existingBall) {
+      activeBallDrag = { pointerId: e.pointerId, ball: existingBall, isNew: false, pt };
+      return;
+    }
+    // A *new* ball or cone now comes from the DOM source chips in the
+    // Arrange band (wireSource, below) — not a canvas tray at the court
+    // corner, which clipped off-screen on a real iPad. Only *existing*
+    // ball/cone drags still start on the canvas.
+    const existingCone = hitCone(pt);
+    if (existingCone) {
+      activeConeDrag = { pointerId: e.pointerId, cone: existingCone, isNew: false, pt };
+      return;
+    }
+    // Add-Player mode (the Arrange default): tapping an already-placed
+    // token sets up the repeat-tap cycle below (finishPointer decides
+    // blue→red vs red→removed based on the token's current color) — same
+    // hit-test used for drag-to-reposition, so a still-moving finger can
+    // do either. Tapping truly empty court falls through to stamping a
+    // brand-new (blue/offense) token instead.
+    const token = hitTokenForRepeatTap(pt, lastArrangeTap);
+    if (token) { activeDrag = { pointerId: e.pointerId, token, moved: false, startPt: pt }; return; }
+    const newToken = stampToken("offense", pt);
+    activeDrag = { pointerId: e.pointerId, token: newToken, moved: true };
+    render();
+    return;
+  }
+
+  let mode = "note", token = null, fromId = null, ball = null;
+  const hitB = hitBall(pt);
+  if (hitB) {
+    const holderId = holderAt(hitB, state.currentTime);
+    if (holderId != null) { mode = "transfer"; fromId = holderId; ball = hitB; }
+  } else {
+    const t = hitTokenForRepeatTap(pt, lastTimelineTap);
+    if (t) { mode = "move"; token = t; }
+  }
+
+  // The shared prefix is locked for moves/passes once a fork exists —
+  // drawing (or a tap that would delete/edit prefix ink) is disallowed
+  // before the fork point; remove the fork first to go back to editing
+  // it. Notes are exempt: each branch owns its own full-timeline note
+  // layer (see createFork), so there's no shared "prefix" for notes to
+  // lock in the first place.
+  if (mode !== "note" && state.forkAt != null && state.currentTime < state.forkAt) {
+    toast("prefix locked — remove fork to edit", getCssVar("--def"));
+    return;
+  }
+
+  activeStroke = {
+    pointerId: e.pointerId, mode, token, fromId, ball,
+    points: [pt], widths: [pressureWidth(e)],
+    startWall: performance.now(), startT: state.currentTime,
+  };
+});
+
+canvas.addEventListener("pointermove", (e) => {
+  // a real Pencil hovers before it touches down, so this catches its
+  // presence earlier than pointerdown would — closes the gap where the
+  // very first palm contact of a session could still sneak through
+  if (e.pointerType === "pen") penEverSeen = true;
+
+  if (activeDrag && e.pointerId === activeDrag.pointerId) {
+    const pt = localPoint(e);
+    // a real stylus never reports exactly zero movement, even for an
+    // intended tap — require a small real displacement before treating
+    // this as a drag, or every tap (switch role) would misfire as a
+    // drag on real hardware
+    if (!activeDrag.moved && dist(pt, activeDrag.startPt) > 6) activeDrag.moved = true;
+    if (activeDrag.moved) {
+      activeDrag.token.fx = clamp((pt.x - court.x) / court.w, 0, 1);
+      activeDrag.token.fy = clamp((pt.y - court.y) / court.h, 0, 1);
+      const p = courtPt(activeDrag.token.fx, activeDrag.token.fy);
+      activeDrag.token.homeX = p.x; activeDrag.token.homeY = p.y;
+      render();
+    }
+    return;
+  }
+  if (activeBallDrag && e.pointerId === activeBallDrag.pointerId) {
+    activeBallDrag.pt = localPoint(e);
+    render();
+    return;
+  }
+  if (activeConeDrag && e.pointerId === activeConeDrag.pointerId) {
+    activeConeDrag.pt = localPoint(e);
+    render();
+    return;
+  }
+  if (!activeStroke || e.pointerId !== activeStroke.pointerId) return;
+  const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+  for (const ev of events) {
+    activeStroke.points.push(localPoint(ev));
+    activeStroke.widths.push(pressureWidth(ev));
+  }
+  render();
+});
+
+canvas.addEventListener("pointerup", finishPointer);
+canvas.addEventListener("pointercancel", finishPointer);
+
+let lastArrangeTap = null; // {tokenId, time} — the last token tapped in Arrange mode, purely so hitTokenForRepeatTap can widen its hit-radius for a repeat tap that lands a little off; doesn't gate anything below
+let lastTimelineTap = null; // {tokenId, time} — same idea, outside Arrange mode, but there it *does* gate: a second tap on the same player (any time later, until something else happens) switches their role
+
+function finishPointer(e) {
+  if (activeDrag && e.pointerId === activeDrag.pointerId) {
+    const drag = activeDrag; activeDrag = null;
+    let changed = drag.moved;
+    if (drag.moved) {
+      lastArrangeTap = null; // an actual drag is a clearly separate action
+    } else {
+      // Every stationary tap on an already-placed token (Add-Player mode
+      // only — Remove mode never reaches here, it returns on pointerdown
+      // instead) advances it one step immediately: blue → red, then
+      // red → removed on the tap after that. One tap, one step — unlike
+      // the mid-play role switch below, this isn't a double-tap gate.
+      lastArrangeTap = { tokenId: drag.token.id, time: performance.now() };
+      if (drag.token.kind === "offense") switchRole(drag.token);
+      else removeTokenState(drag.token);
+      changed = true;
+    }
+    render(); updateDataPanel();
+    if (changed) pushHistory();
+    return;
+  }
+  if (activeBallDrag && e.pointerId === activeBallDrag.pointerId) {
+    const drag = activeBallDrag; activeBallDrag = null;
+    const target = hitToken(drag.pt);
+    let changed = false;
+    if (target) {
+      const heldCount = ballsHeldBy(target.id, state.currentTime, drag.ball);
+      if (heldCount >= MAX_BALLS_PER_PLAYER) {
+        toast("already holding " + MAX_BALLS_PER_PLAYER, getCssVar("--def"));
+      } else if (drag.isNew) {
+        state.balls.push({ id: nextId(), initialHolderId: target.id, transfers: [] });
+        toast("has the ball", getCssVar("--ball"));
+        changed = true;
+      } else {
+        drag.ball.initialHolderId = target.id;
+        toast("reassigned", getCssVar("--ball"));
+        changed = true;
+      }
+    } else if (!drag.isNew) {
+      // dropped off the court (or back on the tray) — remove it
+      state.balls = state.balls.filter(b => b !== drag.ball);
+      toast("removed", getCssVar("--def"));
+      changed = true;
+    }
+    render(); updateDataPanel();
+    if (changed) pushHistory();
+    return;
+  }
+  if (activeConeDrag && e.pointerId === activeConeDrag.pointerId) {
+    const drag = activeConeDrag; activeConeDrag = null;
+    const inCourt = drag.pt.x >= court.x && drag.pt.x <= court.x + court.w &&
+                    drag.pt.y >= court.y && drag.pt.y <= court.y + court.h;
+    let changed = false;
+    if (inCourt) {
+      const fx = clamp((drag.pt.x - court.x) / court.w, 0, 1);
+      const fy = clamp((drag.pt.y - court.y) / court.h, 0, 1);
+      if (drag.isNew) {
+        state.cones.push({ id: nextId(), fx, fy });
+      } else {
+        drag.cone.fx = fx; drag.cone.fy = fy;
+      }
+      changed = true;
+    } else if (!drag.isNew) {
+      // dropped off the court (or back on the tray) — remove it, exactly
+      // like a ball dropped the same way
+      state.cones = state.cones.filter(c => c !== drag.cone);
+      toast("removed", getCssVar("--def"));
+      changed = true;
+    }
+    render(); updateDataPanel();
+    if (changed) pushHistory();
+    return;
+  }
+  finishStroke(e);
+}
+
+// Dynamic drills rotate who's offense and who's defense between reps —
+// this reassigns a placed player's role without deleting and re-pulling
+// them from the bench. Color is cosmetic (see the Arrange-mode role
+// rework) and numbers are one shared sequence regardless of color, so
+// switching never touches label — a player keeps their number no matter
+// which color they're currently wearing.
+function switchRole(token) {
+  const newKind = token.kind === "offense" ? "defense" : "offense";
+  token.kind = newKind;
+  toast("now " + (newKind === "offense" ? "blue" : "red"), getCssVar(newKind === "offense" ? "--off" : "--def"));
+}
+
+// Fixed, not tempo-based — see the transfer branch in finishStroke for why.
+const PASS_DURATION_MS = 400;
+
+function finishStroke(e) {
+  if (!activeStroke || e.pointerId !== activeStroke.pointerId) return;
+  const s = activeStroke; activeStroke = null;
+  const len = pathLength(s.points);
+  const tapPoint = s.points[s.points.length - 1];
+
+  // A real stroke (not a tap) is a clearly separate, deliberate action —
+  // it ends any pending double-tap sequence rather than leaving it to
+  // silently combine with some later unrelated tap.
+  if (len >= 8) lastTimelineTap = null;
+
+  if (len < 8) {
+    if (s.token) {
+      // A short tap landed on a player, not a line. A single tap here
+      // is a no-op (giving the ball this way is an Arrange-mode-only
+      // gesture); a second tap on the SAME player — whenever it comes,
+      // no time limit — switches their role exactly at the current
+      // scrub point, the timeline equivalent of Arrange mode's
+      // setup-time role switch. Real double-tap timing on a tablet
+      // turned out to be far looser than expected: real testing showed
+      // gaps of several seconds between two taps clearly meant as one
+      // gesture, so this is "same token again, nothing else happened
+      // in between" rather than a timing window.
+      const isDoubleTap = lastTimelineTap && lastTimelineTap.tokenId === s.token.id;
+      lastTimelineTap = isDoubleTap ? null : { tokenId: s.token.id, time: performance.now() };
+      if (isDoubleTap) {
+        flipRoleAt(s.token, state.currentTime);
+        render(); updateDataPanel(); pushHistory();
+      }
+      return;
+    }
+    const hit = hitAnyStroke(tapPoint);
+    if (hit) {
+      // A tap that lands on empty floor near an existing line is still
+      // classified as a "note" tap upstream (nothing else was hit) — but
+      // deleting a move/pass here is exactly the "edit the locked prefix"
+      // case the pointerdown guard exists to prevent, so re-check it here
+      // too. Notes stay deletable regardless (see createFork).
+      if (hit.type !== "note" && state.forkAt != null && hit.seg.startT < state.forkAt) {
+        toast("prefix locked — remove fork to edit", getCssVar("--def"));
+        return;
+      }
+      if (hit.type === "move") hit.owner.segments = hit.owner.segments.filter(x => x !== hit.seg);
+      else if (hit.type === "transfer") hit.ball.transfers = hit.ball.transfers.filter(x => x !== hit.seg);
+      else state.annotations = state.annotations.filter(x => x !== hit.seg);
+      toast("deleted", getCssVar("--def"));
+      render(); updateDataPanel(); pushHistory();
+    }
+    return;
+  }
+
+  const wallMs = performance.now() - s.startWall;
+  const durMs = clamp(wallMs, 280, 4200); // tempo of the pen becomes the timing
+
+  if (s.mode === "move") {
+    const seg = { id: nextId(), startT: s.startT, endT: s.startT + durMs, points: s.points.slice() };
+    // Redrawing from "now" overwrites anything this player was going to
+    // do later. A segment entirely after the scrub point is dropped
+    // outright; one the scrub point falls INSIDE (started earlier, ends
+    // later — e.g. scrubbed to mid-line and drawing from there) gets
+    // truncated to end exactly there instead of surviving whole, which
+    // used to leave the old line behind.
+    s.token.segments = s.token.segments.flatMap(ex => {
+      if (ex.endT <= s.startT) return [ex]; // fully in the past
+      if (ex.startT >= s.startT) return []; // fully in the future
+      const frac = (s.startT - ex.startT) / (ex.endT - ex.startT);
+      const { before } = splitPointsAtFraction(ex.points, frac);
+      return [{ ...ex, endT: s.startT, points: before }];
+    });
+    s.token.segments.push(seg);
+    s.token.segments.sort((a, b) => a.startT - b.startT);
+    growTimeline(seg.endT);
+    toast("move", getCssVar("--accent"));
+  } else if (s.mode === "transfer") {
+    const endPt = s.points[s.points.length - 1];
+    const target = hitToken(endPt, 30);
+    // a transfer only registers if it lands on a receiver (pass) or
+    // touches the rim (shot) — anywhere else and the gesture is discarded
+    if (!target && !nearHoop(endPt)) { toast("no target", getCssVar("--def")); render(); return; }
+    const toId = target ? target.id : null; // null = shot
+    // Passes use a fixed short duration, not the pen's tempo. A slowly
+    // drawn pass used to make the ball's "arrival time" land well after
+    // a moving receiver's own move had already finished, so leading them
+    // (see remapPoint below) jumped the line all the way to wherever
+    // that move ended — a big, jarring snap instead of a natural lead.
+    // Shots keep tempo-based duration; there's no receiver to overshoot.
+    const transferDurMs = toId != null ? PASS_DURATION_MS : durMs;
+    const tr = { id: nextId(), startT: s.startT, endT: s.startT + transferDurMs, fromId: s.fromId, toId, points: s.points.slice() };
+    s.ball.transfers = s.ball.transfers.filter(ex => ex.startT < s.startT);
+    s.ball.transfers.push(tr);
+    s.ball.transfers.sort((a, b) => a.startT - b.startT);
+    growTimeline(tr.endT);
+    toast(toId ? "pass" : "shot", getCssVar(toId ? "--pass" : "--shot"));
+  } else {
+    // NOTE — stroke started on empty floor.
+    state.annotations.push({ id: nextId(), t: s.startT, points: s.points.slice(), life: 1400 });
+    growTimeline(s.startT + 1400);
+    toast("note", getCssVar("--ink"));
+  }
+  render(); updateDataPanel(); pushHistory();
+}
+
+function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
+
+function growTimeline(t) {
+  if (t > state.totalDuration * 0.8) {
+    state.totalDuration = Math.ceil((t + 1500) / 1000) * 1000;
+  }
+}
+
+// ---------- rendering ----------
+function render() {
+  // Refreshed once per frame, not per segment — validates the
+  // splitByHolder cache (see possessionSignature).
+  _possessionSig = possessionSignature();
+  ctx.clearRect(0, 0, canvasCssW, canvasCssH);
+  drawCourt();
+  drawCones();
+  for (const token of state.tokens) drawTokenPath(token);
+  drawBallTransfers();
+  drawAnnotations();
+  if (activeStroke) {
+    drawLiveStroke();
+    if (state.ghostsEnabled) drawGhosts();
+  }
+  for (const token of state.tokens) drawToken(token);
+  drawBall();
+  drawActiveBallDrag();   // in-flight ball from the Arrange-band source chip
+  drawActiveConeDrag();   // in-flight cone from the Arrange-band source chip
+  drawTransport();
+}
+
+// Real FIBA half-court markings (see the FIBA constants above), all
+// derived from courtScale()/hoopPoint() so this stays in sync with
+// shot-detection and the ball's resting position elsewhere.
+function drawCourt() {
+  const { x, y, w, h } = court;
+  const scale = courtScale();
+  const cx = x + w / 2;
+  const baseline = y + h;
+  const hoop = hoopPoint();
+
+  ctx.save();
+  ctx.fillStyle = getCssVar("--court");
+  ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = getCssVar("--court-line");
+  ctx.lineWidth = 2;
+  ctx.strokeRect(x, y, w, h); // sidelines + baseline + halfcourt line
+
+  // center circle — only the half that pokes into this half-court
+  ctx.beginPath();
+  ctx.arc(cx, y, FIBA.CENTER_CIRCLE_R * scale, 0, Math.PI);
+  ctx.stroke();
+
+  // key / lane (rectangular since the 2010 FIBA rule change)
+  const laneW = FIBA.LANE_W * scale, laneL = FIBA.LANE_L * scale;
+  const laneX = cx - laneW / 2, laneTop = baseline - laneL;
+  ctx.strokeRect(laneX, laneTop, laneW, laneL);
+
+  // free-throw circle, centered on the free-throw line (the lane's top edge)
+  ctx.beginPath();
+  ctx.arc(cx, laneTop, FIBA.FT_CIRCLE_R * scale, Math.PI, Math.PI * 2);
+  ctx.stroke();
+
+  // restricted-area arc, around the hoop
+  ctx.beginPath();
+  ctx.arc(hoop.x, hoop.y, FIBA.RESTRICTED_AREA_R * scale, Math.PI, Math.PI * 2);
+  ctx.stroke();
+
+  // backboard
+  const backboardY = baseline - FIBA.BACKBOARD_DIST * scale;
+  const backboardHalf = (FIBA.BACKBOARD_W / 2) * scale;
+  ctx.beginPath();
+  ctx.moveTo(cx - backboardHalf, backboardY);
+  ctx.lineTo(cx + backboardHalf, backboardY);
+  ctx.stroke();
+
+  // rim
+  ctx.beginPath();
+  ctx.arc(hoop.x, hoop.y, FIBA.RIM_R * scale, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // three-point line: straight corner segments (0.9m inside each
+  // sideline) meeting the arc exactly where that line intersects a
+  // true 6.75m circle around the hoop — one continuous path.
+  const cornerDX = FIBA.THREE_PT_CORNER_DX * scale;
+  const cornerDY = Math.sqrt(FIBA.THREE_PT_R ** 2 - FIBA.THREE_PT_CORNER_DX ** 2) * scale;
+  const leftCorner = { x: hoop.x - cornerDX, y: hoop.y - cornerDY };
+  const rightCorner = { x: hoop.x + cornerDX, y: hoop.y - cornerDY };
+  const angleLeft = Math.atan2(leftCorner.y - hoop.y, leftCorner.x - hoop.x);
+  const angleRight = Math.atan2(rightCorner.y - hoop.y, rightCorner.x - hoop.x);
+  ctx.beginPath();
+  ctx.moveTo(leftCorner.x, baseline);
+  ctx.lineTo(leftCorner.x, leftCorner.y);
+  ctx.arc(hoop.x, hoop.y, FIBA.THREE_PT_R * scale, angleLeft, angleRight);
+  ctx.lineTo(rightCorner.x, baseline);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+// A stroke fades in place as the scrub position moves past it — full
+// color the instant it happens, gradually fainter the further behind
+// the playhead it falls, floored so it never fully vanishes. Age is
+// relative to the scrub position, not wall-clock drawing time: scrubbing
+// back makes old ink look fresh again, which is the point.
+const STROKE_FADE_MS = 2200;
+const STROKE_FADE_FLOOR = 0.18;
+
+function fadeAlpha(t) {
+  const age = state.currentTime - t;
+  if (age <= 0) return 1; // hasn't happened yet, or just did
+  const f = clamp(age / STROKE_FADE_MS, 0, 1);
+  return 1 - f * (1 - STROKE_FADE_FLOOR);
+}
+
+function hexToRgb(hex) {
+  hex = hex.trim().replace("#", "");
+  if (hex.length === 3) hex = hex.split("").map(c => c + c).join("");
+  const num = parseInt(hex, 16);
+  return { r: (num >> 16) & 255, g: (num >> 8) & 255, b: num & 255 };
+}
+
+// Progressive fade along a move's ACTUAL PATH. The old approach (still used
+// for the near-straight pass/shot lines, below) built a screen-space linear
+// gradient from the run's first pixel to its last and read each pixel's
+// alpha from where it *projected* onto that chord. For a scribbly stroke
+// that projection is non-monotonic, and in the active phase — where the far
+// end is the moving scrub point, so the chord swings every frame — a fixed
+// pixel's alpha oscillated: faded-out sections visibly faded back in.
+// Here the stroke is cut into real contiguous arc-length slices, each
+// stroked solid at its own midpoint-time fadeAlpha. Consecutive slices
+// share a vertex and round caps hide the ~1/SLICES alpha step, so there's
+// no seam (the reason the very first per-piece attempt was abandoned).
+function strokeFadedMoveRun(pts, startTime, endTime, colorHex, lineWidth) {
+  const n = pts.length;
+  if (n < 2) return;
+  ctx.save();
+  ctx.strokeStyle = colorHex;
+  ctx.lineWidth = lineWidth;
+  ctx.lineJoin = "round"; ctx.lineCap = "round";
+  const span = endTime - startTime;
+
+  if (n === 2 || span <= 0) {
+    ctx.globalAlpha = fadeAlpha(endTime);
+    ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y); ctx.lineTo(pts[n - 1].x, pts[n - 1].y); ctx.stroke();
+    ctx.restore();
+    return;
+  }
+
+  const cum = new Float64Array(n);
+  for (let i = 1; i < n; i++) cum[i] = cum[i - 1] + dist(pts[i - 1], pts[i]);
+  const total = cum[n - 1];
+  if (total === 0) { ctx.restore(); return; }
+
+  const SLICES = Math.min(14, Math.max(3, Math.round(n / 8)));
+  const strokeSub = (arr, sliceIdx) => {
+    if (arr.length < 2) return;
+    ctx.globalAlpha = fadeAlpha(startTime + ((sliceIdx + 0.5) / SLICES) * span);
+    ctx.beginPath();
+    ctx.moveTo(arr[0].x, arr[0].y);
+    for (let k = 1; k < arr.length; k++) ctx.lineTo(arr[k].x, arr[k].y);
+    ctx.stroke();
+  };
+
+  let sliceIdx = 0;
+  let sub = [pts[0]];
+  for (let i = 1; i < n; i++) {
+    sub.push(pts[i]);
+    while (sliceIdx < SLICES - 1 && cum[i] >= ((sliceIdx + 1) / SLICES) * total) {
+      strokeSub(sub, sliceIdx);
+      sub = [pts[i]]; // next slice reuses this vertex so the runs join
+      sliceIdx++;
+    }
+  }
+  strokeSub(sub, sliceIdx);
+  ctx.restore();
+}
+
+// Still used for pass/shot lines only — they're a straight line or a single
+// soft bow (never a scribble), so the chord projection stays monotonic and
+// the one-continuous-stroke() form keeps the dash pattern seamless.
+function fadeGradientStroke(points, startTime, endTime, colorHex) {
+  const { r, g, b } = hexToRgb(colorHex);
+  const a = points[0], z = points[points.length - 1];
+  if (points.length < 2 || (a.x === z.x && a.y === z.y)) {
+    return `rgba(${r},${g},${b},${fadeAlpha(endTime)})`;
+  }
+  const grad = ctx.createLinearGradient(a.x, a.y, z.x, z.y);
+  const STOPS = 6;
+  for (let i = 0; i <= STOPS; i++) {
+    const frac = i / STOPS;
+    const t = startTime + frac * (endTime - startTime);
+    grad.addColorStop(frac, `rgba(${r},${g},${b},${fadeAlpha(t)})`);
+  }
+  return grad;
+}
+
+function strokePhase(startT, endT) {
+  if (state.currentTime < startT) return "future";
+  if (state.currentTime > endT) return "past";
+  return "active";
+}
+
+// Renders a move as a wavy "dribble" line whenever the mover holds the
+// ball for it — a purely visual convention, not a stroke classification.
+// The coach can draw a perfectly straight cut; if they have the ball,
+// it still reads as dribbling, because that's what it is.
+// Memoized: wavify is pure, but it samples the path ~total/4 times and each
+// sample called pointAtFraction (which re-walks the polyline), so it ran to
+// ~19ms/frame on a busy play. The run arrays it receives are stable across
+// frames now (see the splitByHolder cache), so keying on the array works.
+const _wavifyCache = new WeakMap();
+function wavify(points, amplitude = 6, wavelength = 26, distanceOffset = 0) {
+  // Round the offset so sub-pixel scrub churn doesn't defeat the cache; a
+  // whole-segment (past/future) run always has offset 0 and hits cleanly.
+  const off = Math.round(distanceOffset * 2) / 2;
+  const hit = _wavifyCache.get(points);
+  if (hit && hit.len === points.length && hit.amp === amplitude && hit.wl === wavelength && hit.off === off) return hit.out;
+  const out = computeWavify(points, amplitude, wavelength, off);
+  _wavifyCache.set(points, { len: points.length, amp: amplitude, wl: wavelength, off, out });
+  return out;
+}
+
+const WAVIFY_STEP = 4; // px between wave samples, in ABSOLUTE arc length
+
+// `distanceOffset` = arc length from the FULL segment's start to points[0].
+// The sine phase and the sample positions are both keyed off absolute arc
+// length along the segment, not `i / steps` of whatever sub-path this is —
+// so when drawTokenPath re-splits the stroke at the moving scrub point
+// every frame, the wave crests stay pinned to fixed points on the path
+// instead of crawling ("very long wavy lines jitter"). Also O(n) now: one
+// cumulative-length pass, then linear interpolation between bracketing
+// points, instead of pointAtFraction() re-walking the polyline per sample.
+function computeWavify(points, amplitude, wavelength, distanceOffset = 0) {
+  const n = points.length;
+  if (n < 2) return points;
+  const cum = new Float64Array(n);
+  for (let i = 1; i < n; i++) cum[i] = cum[i - 1] + dist(points[i - 1], points[i]);
+  const total = cum[n - 1];
+  if (total < 4) return points;
+
+  const out = [];
+  let seg = 1;
+  const twoPiOverWl = (Math.PI * 2) / wavelength;
+  for (let d = 0; d <= total + 1e-6; d += WAVIFY_STEP) {
+    const dd = Math.min(d, total);
+    while (seg < n - 1 && cum[seg] < dd) seg++;
+    const a = points[seg - 1], b = points[seg];
+    const segLen = cum[seg] - cum[seg - 1];
+    const t = segLen === 0 ? 0 : (dd - cum[seg - 1]) / segLen;
+    const bx = a.x + (b.x - a.x) * t, by = a.y + (b.y - a.y) * t;
+    let dx = b.x - a.x, dy = b.y - a.y;
+    const dlen = Math.hypot(dx, dy) || 1;
+    const nx = -dy / dlen, ny = dx / dlen;
+    const s = Math.sin((distanceOffset + dd) * twoPiOverWl) * amplitude;
+    out.push({ x: bx + nx * s, y: by + ny * s });
+    if (dd === total) break;
+  }
+  return out;
+}
+
+// Possession can change mid-move — a coach can draw one long cut and
+// release a pass partway through it. Walk the segment's own elapsed time
+// (by arc length, matching how tokenPosAt animates it) and split into
+// holder/non-holder runs so the dribble squiggle covers exactly the part
+// where this player actually had the ball, not the whole stroke.
+// Possession signature — changes only when a ball's identity, starting
+// holder, or any transfer's timing/endpoints change. Recomputed once per
+// render (see render()), never per segment, and used to validate the
+// splitByHolder cache below.
+let _possessionSig = "";
+function possessionSignature() {
+  let s = "";
+  for (const b of state.balls) {
+    s += b.id + ":" + b.initialHolderId + "|";
+    for (const tr of b.transfers) s += tr.startT + "," + tr.endT + "," + tr.fromId + "," + tr.toId + ";";
+    s += "/";
+  }
+  return s;
+}
+
+// splitByHolder is pure given (token, seg.points, possession timeline), but
+// it walks every point calling ballsHeldBy — ~24k calls/frame on a busy
+// play. Cache the decomposition per segment; it only changes when the
+// stroke or the possession timeline does. Keeping the run objects stable
+// across frames also lets the wavify memo below actually hit.
+const _holderRunsCache = new WeakMap();
+function splitByHolder(token, seg) {
+  const cached = _holderRunsCache.get(seg.points);
+  if (cached && cached.len === seg.points.length && cached.sig === _possessionSig &&
+      cached.tokenId === token.id && cached.startT === seg.startT && cached.endT === seg.endT) {
+    return cached.runs;
+  }
+  const runs = computeHolderRuns(token, seg);
+  _holderRunsCache.set(seg.points, {
+    len: seg.points.length, sig: _possessionSig, tokenId: token.id,
+    startT: seg.startT, endT: seg.endT, runs,
+  });
+  return runs;
+}
+
+function computeHolderRuns(token, seg) {
+  // Cumulative arc length, computed once. This used to be
+  // `pathLength(seg.points.slice(0, i + 1))` evaluated per point — O(n²)
+  // with an allocation per step, ~115k distance calcs per segment per
+  // frame on a smoothed (~480-point) stroke. It was the single biggest
+  // cost in render() and the main reason drawing lagged on the iPad.
+  const pts = seg.points;
+  const n = pts.length;
+  const cum = new Float64Array(n);
+  for (let i = 1; i < n; i++) cum[i] = cum[i - 1] + dist(pts[i - 1], pts[i]);
+  const total = cum[n - 1];
+  const span = seg.endT - seg.startT;
+  const timeAt = (i) => {
+    if (i === 0) return seg.startT;
+    const frac = total === 0 ? 1 : cum[i] / total;
+    return seg.startT + frac * span;
+  };
+  const runs = [];
+  // distStart: arc length within THIS miniSeg to the run's first point.
+  // drawTokenPath adds the miniSeg's own offset from the segment start, so
+  // wavify() always sees absolute arc length -> stable crests (no crawl).
+  let current = { dribbling: ballsHeldBy(token.id, seg.startT) > 0, points: [seg.points[0]], startTime: seg.startT, distStart: 0 };
+  for (let i = 1; i < seg.points.length; i++) {
+    const dribbling = ballsHeldBy(token.id, timeAt(i)) > 0;
+    current.points.push(seg.points[i]); // shared boundary point keeps runs visually joined
+    if (dribbling !== current.dribbling) {
+      current.endTime = timeAt(i);
+      runs.push(current);
+      current = { dribbling, points: [seg.points[i]], startTime: timeAt(i), distStart: cum[i] };
+    }
+  }
+  current.endTime = seg.endT;
+  runs.push(current);
+  return runs;
+}
+
+// Splits a polyline at arc-length fraction `frac`, sharing the boundary
+// point so both halves stay visually joined. Same constant-speed
+// parameterization as pointAtFraction, so the split lands exactly where
+// tokenPosAt renders the token itself at this instant.
+function splitPointsAtFraction(points, frac) {
+  if (points.length === 1 || frac <= 0) return { before: [points[0]], after: points };
+  const total = pathLength(points);
+  if (frac >= 1 || total === 0) return { before: points, after: [points[points.length - 1]] };
+  const target = frac * total;
+  let acc = 0;
+  const before = [points[0]];
+  for (let i = 1; i < points.length; i++) {
+    const segLen = dist(points[i - 1], points[i]);
+    if (acc + segLen >= target) {
+      const t = segLen === 0 ? 0 : (target - acc) / segLen;
+      const splitPt = {
+        x: points[i - 1].x + (points[i].x - points[i - 1].x) * t,
+        y: points[i - 1].y + (points[i].y - points[i - 1].y) * t,
+      };
+      before.push(splitPt);
+      return { before, after: [splitPt, ...points.slice(i)] };
+    }
+    before.push(points[i]);
+    acc += segLen;
+  }
+  return { before: points, after: [points[points.length - 1]] };
+}
+
+// Strokes one run of a token's move (or the whole thing), handling the
+// holder-split dribble-wavify and optional arrowhead. `miniSeg` needs
+// only startT/endT/points — used both for whole segments and for
+// active-phase sub-splits.
+// Alpha is NOT flat: each little point-to-point piece fades on its own
+// clock, based on when the token actually passed that specific point
+// (per run.startTime/endTime from splitByHolder) — so a long stroke
+// ages progressively along its length instead of all at once. Points
+// not yet reached (age <= 0, per fadeAlpha) simply stay full-opacity.
+function renderTokenSegRun(token, miniSeg, { lineWidth, color, distanceOffset = 0 }) {
+  const runs = splitByHolder(token, miniSeg);
+  ctx.save();
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = lineWidth;
+  ctx.lineJoin = "round"; ctx.lineCap = "round";
+  for (const run of runs) {
+    const pts = run.dribbling ? wavify(run.points, 6, 26, distanceOffset + (run.distStart || 0)) : run.points;
+    strokeFadedMoveRun(pts, run.startTime, run.endTime, color, lineWidth);
+  }
+  ctx.restore();
+}
+
+// DEV-ONLY: draws a "future" (not-yet-reached) stroke per the currently
+// selected comparison style. Deliberately skips dribble-wavify — it's a
+// preview of what will happen, not the final rendering.
+function drawFutureStroke(points) {
+  ctx.save();
+  ctx.globalAlpha = 0.45;
+  ctx.strokeStyle = getCssVar("--future");
+  ctx.lineWidth = 3;
+  ctx.lineJoin = "round"; ctx.lineCap = "round";
+  ctx.beginPath();
+  points.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawTokenPath(token) {
+  for (const seg of token.segments) {
+    const color = getCssVar("--accent");
+    const phase = strokePhase(seg.startT, seg.endT);
+    // Corrected once per segment, not per render site — every downstream
+    // consumer (splitPointsAtFraction, splitByHolder inside
+    // renderTokenSegRun, drawFutureStroke) is arc-length-based and works
+    // identically on smoothed points, so this is the one place it needs
+    // to happen. seg.points itself is untouched (render-time only).
+    const points = smoothedMovePoints(seg.points);
+    if (phase === "future") {
+      drawFutureStroke(points);
+      continue;
+    }
+    if (phase === "past") {
+      renderTokenSegRun(token, { startT: seg.startT, endT: seg.endT, points }, { lineWidth: 3, color, distanceOffset: 0 });
+      continue;
+    }
+    // Active: the token is somewhere mid-path right now. Split the stroke
+    // there so the part already behind it drops the highlight immediately,
+    // instead of the whole stroke staying bold until endT and snapping to
+    // "past" all at once.
+    const frac = clamp((state.currentTime - seg.startT) / (seg.endT - seg.startT), 0, 1);
+    const { before, after } = splitPointsAtFraction(points, frac);
+    const aheadHasLine = after.length > 1;
+    // `after` starts partway along the stroke — tell wavify how far, so its
+    // wave stays locked to the path as the split point moves each frame.
+    const afterOffset = pathLength(before);
+    if (before.length > 1) {
+      renderTokenSegRun(token, { startT: seg.startT, endT: state.currentTime, points: before },
+        { lineWidth: 3, color, distanceOffset: 0 });
+    }
+    if (aheadHasLine) {
+      renderTokenSegRun(token, { startT: state.currentTime, endT: seg.endT, points: after },
+        { lineWidth: 4.5, color, distanceOffset: afterOffset });
+    }
+  }
+}
+
+// Same gradient-based progressive fade as renderTokenSegRun, adapted
+// for a dashed pass/shot line — one continuous stroke() call so the
+// dash pattern renders natively, with no manual offset bookkeeping.
+function renderTransferRun(miniSeg, { lineWidth, color, terminal, isShot }) {
+  const pts = miniSeg.points;
+  ctx.save();
+  ctx.globalAlpha = 1;
+  ctx.lineWidth = lineWidth;
+  ctx.lineJoin = "round"; ctx.lineCap = "round";
+  ctx.setLineDash([2, 9]);
+  ctx.strokeStyle = fadeGradientStroke(pts, miniSeg.startT, miniSeg.endT, color);
+  ctx.beginPath();
+  pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+  ctx.stroke();
+  ctx.setLineDash([]);
+  if (terminal) {
+    const a = pts[pts.length - 2] || pts[0];
+    const b = pts[pts.length - 1];
+    ctx.globalAlpha = fadeAlpha(miniSeg.endT);
+    if (isShot) drawShotMark(b, color); else drawArrow(a, b, color);
+  }
+  ctx.restore();
+}
+
+function drawBallTransfers() {
+  for (const ball of state.balls) {
+  for (const tr of ball.transfers) {
+    const isShot = tr.toId == null;
+    const color = getCssVar(isShot ? "--shot" : "--pass");
+    const phase = strokePhase(tr.startT, tr.endT);
+    const points = renderPointsForTransfer(tr);
+    if (phase === "future") {
+      ctx.save();
+      ctx.globalAlpha = 0.45;
+      ctx.strokeStyle = getCssVar("--future");
+      ctx.lineWidth = 3;
+      ctx.lineJoin = "round"; ctx.lineCap = "round";
+      ctx.setLineDash([2, 9]);
+      ctx.beginPath();
+      points.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.restore();
+      continue;
+    }
+    if (phase === "past") {
+      renderTransferRun({ startT: tr.startT, endT: tr.endT, points }, { lineWidth: 3, color, terminal: true, isShot });
+      continue;
+    }
+    // Active — same trailing-fade split as token moves.
+    const frac = clamp((state.currentTime - tr.startT) / (tr.endT - tr.startT), 0, 1);
+    const { before, after } = splitPointsAtFraction(points, frac);
+    const aheadHasLine = after.length > 1;
+    if (before.length > 1) {
+      renderTransferRun({ startT: tr.startT, endT: state.currentTime, points: before },
+        { lineWidth: 3, color, terminal: !aheadHasLine, isShot });
+    }
+    if (aheadHasLine) {
+      renderTransferRun({ startT: state.currentTime, endT: tr.endT, points: after },
+        { lineWidth: 4.5, color, terminal: true, isShot });
+    }
+  }
+  }
+}
+
+function drawArrow(a, b, color) {
+  drawArrowAtAngle(b, Math.atan2(b.y - a.y, b.x - a.x), color);
+}
+
+function drawArrowAtAngle(tip, ang, color) {
+  const len = 9;
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(tip.x, tip.y);
+  ctx.lineTo(tip.x - len * Math.cos(ang - 0.42), tip.y - len * Math.sin(ang - 0.42));
+  ctx.lineTo(tip.x - len * Math.cos(ang + 0.42), tip.y - len * Math.sin(ang + 0.42));
+  ctx.closePath(); ctx.fill();
+}
+
+function drawShotMark(pt, color) {
+  ctx.strokeStyle = color; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(pt.x, pt.y, 6, 0, Math.PI * 2); ctx.stroke();
+}
+
+function drawAnnotations() {
+  for (const a of state.annotations) {
+    const age = state.currentTime - a.t;
+    if (age < 0 || age > a.life) continue;
+    const fadeStart = a.life - 400;
+    const alpha = age > fadeStart ? clamp(1 - (age - fadeStart) / 400, 0, 1) : 1;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.strokeStyle = getCssVar("--ink");
+    ctx.lineWidth = 3.2;
+    ctx.lineJoin = "round"; ctx.lineCap = "round";
+    ctx.beginPath();
+    a.points.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+// While actively drawing a stroke, timing it against another player's
+// concurrent motion is hard — nothing on screen moves as your pen does,
+// since real tokens stay frozen at the scrub position the whole time.
+// This shows a faint marker for every OTHER token (and the ball) that's
+// genuinely mid-motion at the timeline instant your pen has *currently*
+// reached (startT + wall-clock elapsed since the stroke began) — a live
+// reference point that moves as you draw, not a static preview.
+function drawGhosts() {
+  const s = activeStroke;
+  const ghostT = clamp(s.startT + (performance.now() - s.startWall), 0, state.totalDuration);
+  const excludeId = s.token ? s.token.id : s.fromId;
+  ctx.save();
+  ctx.globalAlpha = 0.35;
+  for (const token of state.tokens) {
+    if (token.id === excludeId) continue;
+    const moving = token.segments.some(seg => ghostT >= seg.startT && ghostT < seg.endT);
+    if (!moving) continue;
+    const p = tokenPosAt(token, ghostT);
+    if (kindAt(token, ghostT) === "offense") {
+      ctx.fillStyle = getCssVar("--off");
+      ctx.beginPath(); ctx.arc(p.x, p.y, OFFENSE_R, 0, Math.PI * 2); ctx.fill();
+    } else {
+      ctx.fillStyle = getCssVar("--def");
+      ctx.beginPath(); ctx.arc(p.x, p.y, DEFENSE_R, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  for (const ball of state.balls) {
+    if (ball === s.ball) continue;
+    const bp = ballPosAt(ball, ghostT);
+    if (bp.inFlight) {
+      ctx.fillStyle = getCssVar("--ball");
+      ctx.beginPath(); ctx.arc(bp.pos.x, bp.pos.y, BALL_R, 0, Math.PI * 2); ctx.fill();
+    }
+  }
+  ctx.restore();
+}
+
+function drawLiveStroke() {
+  const s = activeStroke;
+  const color = s.mode === "note" ? getCssVar("--ink") : s.mode === "transfer" ? getCssVar("--pass") : getCssVar("--accent");
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineCap = "round"; ctx.lineJoin = "round";
+  for (let i = 1; i < s.points.length; i++) {
+    ctx.lineWidth = s.widths[i];
+    ctx.beginPath();
+    ctx.moveTo(s.points[i - 1].x, s.points[i - 1].y);
+    ctx.lineTo(s.points[i].x, s.points[i].y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawToken(token) {
+  const p = tokenPosAt(token, state.currentTime);
+  ctx.save();
+  if (state.arranging) {
+    ctx.globalAlpha = 0.9;
+    ctx.strokeStyle = getCssVar("--accent"); ctx.lineWidth = 2;
+    ctx.setLineDash([3, 4]);
+    ctx.beginPath(); ctx.arc(p.x, p.y, 21, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  if (kindAt(token, state.currentTime) === "offense") {
+    ctx.fillStyle = getCssVar("--off");
+    ctx.beginPath(); ctx.arc(p.x, p.y, OFFENSE_R, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#fff";
+  } else {
+    ctx.fillStyle = getCssVar("--def");
+    ctx.beginPath(); ctx.arc(p.x, p.y, DEFENSE_R, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "#fff";
+  }
+  if (state.numbersEnabled) {
+    ctx.font = "700 12px -apple-system, sans-serif";
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillText(token.label, p.x, p.y + 1);
+  }
+  ctx.restore();
+}
+
+// Draws every ball at its current holder/flight position. Two balls
+// held by the same player fan out around them (see ballPosAt's
+// angleOffset) instead of fully overlapping. The ball actively being
+// dragged (if any) is skipped here — drawActiveBallDrag renders it
+// floating at the pointer instead.
+function drawBall() {
+  const heldBy = new Map(); // holderId -> balls[]
+  for (const ball of state.balls) {
+    if (ball === (activeBallDrag && activeBallDrag.ball)) continue;
+    const holderId = holderAt(ball, state.currentTime);
+    if (holderId == null) continue;
+    if (!heldBy.has(holderId)) heldBy.set(holderId, []);
+    heldBy.get(holderId).push(ball);
+  }
+  ctx.save();
+  ctx.fillStyle = getCssVar("--ball");
+  for (const ball of state.balls) {
+    if (ball === (activeBallDrag && activeBallDrag.ball)) continue;
+    const holderId = holderAt(ball, state.currentTime);
+    let angleOffset = 0;
+    const siblings = holderId != null ? heldBy.get(holderId) : null;
+    if (siblings && siblings.length > 1) {
+      angleOffset = (siblings.indexOf(ball) - (siblings.length - 1) / 2) * 0.6;
+    }
+    const { pos } = ballPosAt(ball, state.currentTime, angleOffset);
+    ctx.beginPath(); ctx.arc(pos.x, pos.y, BALL_R, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+// Arrange-mode-only: a small, infinite-supply ball just outside the
+// court's corner — drag one onto a player to assign it, or drag an
+// on-court ball back here (or anywhere off the court) to remove it.
+// Dashed ring marks it as a source, not a placed ball; the "to player"
+// hint (kept short so it fits the gutter without spilling onto the
+// court — measured against ctx.measureText, not guessed) exists because
+// the icon alone, sitting away from any player, wasn't self-explanatory.
+// Moved in from a far corner and labeled the same day a coach found it
+// easy to miss entirely at the old fixed (24,24) spot.
+function drawBallTray() {
+  if (!state.arranging) return;
+  ctx.save();
+  ctx.fillStyle = getCssVar("--ball");
+  ctx.beginPath(); ctx.arc(ballTrayPos.x, ballTrayPos.y, BALL_R, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = getCssVar("--ink-2"); ctx.lineWidth = 1.5;
+  ctx.globalAlpha = 0.6;
+  ctx.setLineDash([2, 3]);
+  ctx.beginPath(); ctx.arc(ballTrayPos.x, ballTrayPos.y, BALL_R + 5, 0, Math.PI * 2); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = getCssVar("--ink-2");
+  ctx.font = "500 11px -apple-system, sans-serif";
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  ctx.fillText("to player", ballTrayPos.x - BALL_R - 11, ballTrayPos.y);
+  ctx.restore();
+}
+
+function drawActiveBallDrag() {
+  if (!activeBallDrag) return;
+  ctx.save();
+  ctx.globalAlpha = 0.7;
+  ctx.fillStyle = getCssVar("--ball");
+  ctx.beginPath(); ctx.arc(activeBallDrag.pt.x, activeBallDrag.pt.y, BALL_R, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+// A small triangle distinguishes a cone from every circular marker
+// (tokens, ball) at a glance.
+function coneTrianglePath(x, y, r) {
+  ctx.beginPath();
+  ctx.moveTo(x, y - r);
+  ctx.lineTo(x - r * 0.9, y + r * 0.75);
+  ctx.lineTo(x + r * 0.9, y + r * 0.75);
+  ctx.closePath();
+}
+
+// Cones are static — no timeline segments, so this is always just the
+// live courtPt(fx,fy), never a cached/interpolated position like a token.
+function drawCones() {
+  ctx.save();
+  ctx.fillStyle = getCssVar("--cone");
+  for (const cone of state.cones) {
+    const p = courtPt(cone.fx, cone.fy);
+    coneTrianglePath(p.x, p.y, CONE_R);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+// Arrange-mode-only source, directly below the ball tray — same
+// infinite-supply drag-in/drag-out convention, see drawBallTray().
+function drawConeTray() {
+  if (!state.arranging) return;
+  ctx.save();
+  ctx.fillStyle = getCssVar("--cone");
+  coneTrianglePath(coneTrayPos.x, coneTrayPos.y, CONE_R);
+  ctx.fill();
+  ctx.strokeStyle = getCssVar("--ink-2"); ctx.lineWidth = 1.5;
+  ctx.globalAlpha = 0.6;
+  ctx.setLineDash([2, 3]);
+  ctx.beginPath(); ctx.arc(coneTrayPos.x, coneTrayPos.y, CONE_R + 6, 0, Math.PI * 2); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = getCssVar("--ink-2");
+  ctx.font = "500 11px -apple-system, sans-serif";
+  ctx.textAlign = "right"; ctx.textBaseline = "middle";
+  ctx.fillText("to court", coneTrayPos.x - CONE_R - 12, coneTrayPos.y);
+  ctx.restore();
+}
+
+function drawActiveConeDrag() {
+  if (!activeConeDrag) return;
+  ctx.save();
+  ctx.globalAlpha = 0.7;
+  ctx.fillStyle = getCssVar("--cone");
+  coneTrianglePath(activeConeDrag.pt.x, activeConeDrag.pt.y, CONE_R);
+  ctx.fill();
+  ctx.restore();
+}
+
+// Runs every frame (every pointermove while drawing). Must not read layout
+// — positions are percentages of the scrub element's own width, so no
+// getBoundingClientRect(). Text writes are guarded so an unchanged label
+// doesn't invalidate anything.
+let _lastTimeStr = "", _lastTotalStr = "";
+function drawTransport() {
+  const timeStr = (state.currentTime / 1000).toFixed(1) + "s";
+  if (timeStr !== _lastTimeStr) { document.getElementById("timeOut").textContent = timeStr; _lastTimeStr = timeStr; }
+  const totalStr = (state.totalDuration / 1000).toFixed(1) + "s";
+  if (totalStr !== _lastTotalStr) { document.getElementById("totalOut").textContent = totalStr; _lastTotalStr = totalStr; }
+
+  const pct = (state.currentTime / state.totalDuration) * 100;
+  document.getElementById("scrubFill").style.width = pct + "%";
+  document.getElementById("scrubThumb").style.left = pct + "%";
+
+  const forkMark = document.getElementById("forkMark");
+  if (state.forkAt != null) {
+    forkMark.style.display = "";
+    forkMark.style.left = ((state.forkAt / state.totalDuration) * 100) + "%";
+  } else {
+    forkMark.style.display = "none";
+  }
+}
+
+// ---------- scrub bar ----------
+const scrubEl = document.getElementById("scrub");
+let scrubbing = false;
+
+const FORK_SNAP_PX = 10; // magnetic radius around the fork marker, in screen pixels
+
+function seekFromClientX(clientX) {
+  const r = scrubEl.getBoundingClientRect();
+  const frac = clamp((clientX - r.left) / r.width, 0, 1);
+  let t = frac * state.totalDuration;
+  if (state.forkAt != null) {
+    const forkPx = (state.forkAt / state.totalDuration) * r.width;
+    const targetPx = frac * r.width;
+    if (Math.abs(targetPx - forkPx) <= FORK_SNAP_PX) t = state.forkAt;
+  }
+  state.currentTime = t;
+  render();
+}
+
+scrubEl.addEventListener("pointerdown", (e) => {
+  scrubbing = true; scrubEl.setPointerCapture(e.pointerId);
+  togglePlay(false);
+  seekFromClientX(e.clientX);
+});
+scrubEl.addEventListener("pointermove", (e) => { if (scrubbing) seekFromClientX(e.clientX); });
+scrubEl.addEventListener("pointerup", () => { scrubbing = false; });
+
+// ---------- playback ----------
+function togglePlay(force) {
+  state.playing = force !== undefined ? force : !state.playing;
+  document.getElementById("playIcon").innerHTML = state.playing
+    ? '<path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/>'
+    : '<path d="M8 5v14l11-7z"/>';
+  document.getElementById("btnPlay").setAttribute("aria-label", state.playing ? "Pause" : "Play");
+  lastPlayTs = null;
+  if (state.playing) requestAnimationFrame(playTick);
+}
+
+function playTick(ts) {
+  if (!state.playing) return;
+  if (lastPlayTs == null) lastPlayTs = ts;
+  const dt = ts - lastPlayTs; lastPlayTs = ts;
+  state.currentTime += dt;
+  if (state.currentTime > state.totalDuration) state.currentTime = 0;
+  render();
+  requestAnimationFrame(playTick);
+}
+
+document.getElementById("btnPlay").addEventListener("click", () => togglePlay());
+
+// ---------- toast ----------
+let toastTimer = null;
+function toast(text, bg) {
+  const el = document.getElementById("toast");
+  el.textContent = text;
+  el.style.background = bg || getCssVar("--ink");
+  el.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove("show"), 900);
+}
+
+// ---------- data panel: the play as data, not video ----------
+function buildPlayDocument() {
+  const labelOf = (id) => { const t = tokenById(id); return t ? t.label : null; };
+  return {
+    formation: state.tokens.map(t => ({
+      id: t.id, kind: t.kind, label: t.label, home: { x: round(t.fx), y: round(t.fy) },
+      roleChanges: t.roleChanges.map(rc => ({ atMs: Math.round(rc.t), kind: rc.kind })),
+    })),
+    moves: state.tokens.flatMap(t => t.segments.map(s => ({
+      token: t.label, startMs: Math.round(s.startT), endMs: Math.round(s.endT),
+      path: s.points.filter((_, i) => i % 4 === 0).map(p => [Math.round(p.x), Math.round(p.y)]),
+    }))),
+    balls: state.balls.map(ball => ({
+      id: ball.id, initialHolder: labelOf(ball.initialHolderId),
+      transfers: ball.transfers.map(tr => ({
+        from: labelOf(tr.fromId), to: tr.toId == null ? "shot" : labelOf(tr.toId),
+        startMs: Math.round(tr.startT), endMs: Math.round(tr.endT),
+        path: tr.points.filter((_, i) => i % 4 === 0).map(p => [Math.round(p.x), Math.round(p.y)]),
+      })),
+    })),
+    notes: state.annotations.map(a => ({
+      atMs: Math.round(a.t), lifeMs: a.life,
+      path: a.points.filter((_, i) => i % 4 === 0).map(p => [Math.round(p.x), Math.round(p.y)]),
+    })),
+    cones: state.cones.map(c => ({ id: c.id, x: round(c.fx), y: round(c.fy) })),
+    durationMs: state.totalDuration,
+  };
+}
+function round(n) { return Math.round(n * 100) / 100; }
+
+function updateDataPanel() {
+  document.getElementById("dataOut").textContent = JSON.stringify(buildPlayDocument(), null, 2);
+}
+
+document.getElementById("btnData").addEventListener("click", () => {
+  updateDataPanel();
+  document.getElementById("dataPanel").classList.add("open");
+});
+document.getElementById("btnCloseData").addEventListener("click", () => {
+  document.getElementById("dataPanel").classList.remove("open");
+});
+document.getElementById("btnCopy").addEventListener("click", async () => {
+  try { await navigator.clipboard.writeText(document.getElementById("dataOut").textContent); toast("copied", getCssVar("--accent")); } catch {}
+});
+
+// Ghosts / Player-numbers are switch rows in the overflow (⋯) menu now,
+// not toolbar toggle-buttons — flip state + reflect it in aria-checked,
+// nothing else (still no pushHistory, same as before).
+document.getElementById("btnGhosts").addEventListener("click", () => {
+  state.ghostsEnabled = !state.ghostsEnabled;
+  document.getElementById("btnGhosts").setAttribute("aria-checked", String(state.ghostsEnabled));
+});
+document.getElementById("btnNumbers").addEventListener("click", () => {
+  state.numbersEnabled = !state.numbersEnabled;
+  document.getElementById("btnNumbers").setAttribute("aria-checked", String(state.numbersEnabled));
+  render();
+});
+
+// ---------- library (Save/Load/Delete for formations + plays) ----------
+document.getElementById("btnSaveFormation").addEventListener("click", () => {
+  const raw = prompt("Save formation as:");
+  const name = raw == null ? "" : raw.trim();
+  if (!name) return;
+  if (readSavedFormations()[name] && !confirm(`Overwrite "${name}"?`)) return;
+  saveFormation(name);
+  toast(`saved "${name}"`, getCssVar("--accent"));
+});
+document.getElementById("btnSavePlay").addEventListener("click", () => {
+  const raw = prompt("Save play as:");
+  const name = raw == null ? "" : raw.trim();
+  if (!name) return;
+  if (readSavedPlays()[name] && !confirm(`Overwrite "${name}"?`)) return;
+  savePlay(name);
+  toast(`saved play "${name}"`, getCssVar("--accent"));
+});
+
+// A Library row = load that entry; its trailing ✕ = delete it. Replaces
+// the old <select> + separate Load/Delete buttons.
+function wireLibSection(containerId, kind) {
+  document.getElementById(containerId).addEventListener("click", (e) => {
+    const row = e.target.closest(".lib-row");
+    if (!row) return;
+    // Own this click fully — the menu's own click handler would otherwise
+    // mis-read the target after renderLibraryMenu() detaches these rows.
+    e.stopPropagation();
+    const name = row.dataset.name;
+    if (e.target.closest("[data-del]")) {
+      if (!confirm(`Delete "${name}"?`)) return;
+      if (kind === "play") { const o = readSavedPlays(); delete o[name]; writeSavedPlays(o); }
+      else { const o = readSavedFormations(); delete o[name]; writeSavedFormations(o); }
+      renderLibraryMenu();
+      toast(`deleted ${kind} "${name}"`, getCssVar("--def"));
+      return;
+    }
+    const what = kind === "play" ? "play" : "drawing";
+    if (hasDrawnContent() && !confirm(`Load "${name}"? This discards the current ${what}.`)) return;
+    if (kind === "play") loadSavedPlay(name); else loadSavedFormation(name);
+    closeAllMenus();
+    toast(`loaded ${kind} "${name}"`, getCssVar("--accent"));
+  });
+}
+wireLibSection("libPlays", "play");
+wireLibSection("libFormations", "formation");
+renderLibraryMenu();
+
+// ---------- forked plays: footer transport cluster ----------
+// The fork controls now live in the footer, left of the scrubber (forking
+// is a timeline op). #app.forked drives which set shows: the single "fork
+// here" icon, or the branch <select> + "add branch" + a ⋯ menu holding
+// Delete branch / Remove fork.
+function refreshForkUI() {
+  const forked = state.forkAt != null;
+  document.getElementById("app").classList.toggle("forked", forked);
+  if (forked) {
+    const sel = document.getElementById("selBranch");
+    sel.innerHTML = state.branches
+      .map((b) => `<option value="${b.id}"${b.id === state.activeBranchId ? " selected" : ""}>${escapeHtml(b.name)}</option>`)
+      .join("");
+  }
+}
+document.getElementById("btnFork").addEventListener("click", () => {
+  if (state.arranging) { toast("finish arranging first", getCssVar("--def")); return; }
+  if (state.currentTime <= 0) { toast("scrub to a decision point first", getCssVar("--def")); return; }
+  createFork();
+  refreshForkUI();
+  toast("forked — drawing branch A", getCssVar("--accent"));
+});
+document.getElementById("selBranch").addEventListener("change", (e) => {
+  switchBranch(Number(e.target.value));
+  refreshForkUI();
+});
+document.getElementById("btnAddBranch").addEventListener("click", () => {
+  const branch = addBranch();
+  refreshForkUI();
+  if (branch) toast(`added branch ${branch.name} — drawing it now`, getCssVar("--accent"));
+});
+document.getElementById("btnDeleteBranch").addEventListener("click", () => {
+  const id = Number(document.getElementById("selBranch").value);
+  const branch = branchById(id);
+  if (!branch) return;
+  const collapsing = state.branches.length <= 2;
+  const msg = collapsing
+    ? `Delete branch ${branch.name}? Only one branch would be left, so the fork itself will be removed and the other branch kept as the normal timeline.`
+    : `Delete branch ${branch.name}? Its drawing will be discarded.`;
+  if (!confirm(msg)) return;
+  deleteBranch(id);
+  refreshForkUI();
+  toast(collapsing ? "fork collapsed" : `deleted branch ${branch.name}`, getCssVar("--def"));
+});
+document.getElementById("btnRemoveFork").addEventListener("click", () => {
+  if (!confirm("Remove fork? All branches will be discarded.")) return;
+  removeFork();
+  refreshForkUI();
+  toast("fork removed", getCssVar("--def"));
+});
+refreshForkUI();
+
+document.getElementById("btnBlank").addEventListener("click", () => {
+  state.tokens = [];
+  state.annotations = [];
+  state.balls = []; // no balls until the coach drags one on from the tray
+  state.cones = [];
+  state.currentTime = 0;
+  state.totalDuration = 8000;
+  state.forkAt = null; state.branches = []; state.activeBranchId = null; state.preforkNotes = null;
+  render(); updateDataPanel();
+  resetHistory();
+  refreshForkUI();
+  setArranging(true); // building a roster from nothing is an Arrange-time activity
+});
+function recomputeDuration() {
+  let maxT = 0;
+  for (const t of state.tokens) for (const seg of t.segments) maxT = Math.max(maxT, seg.endT);
+  for (const ball of state.balls) for (const tr of ball.transfers) maxT = Math.max(maxT, tr.endT);
+  for (const a of state.annotations) maxT = Math.max(maxT, a.t + a.life);
+  return Math.max(8000, Math.ceil((maxT + 1500) / 1000) * 1000);
+}
+
+// Notes and the play clear independently -- a coach should be able to
+// wipe a scratch note without losing the diagram, or restart the diagram
+// without losing a note they want to keep drawing toward.
+document.getElementById("btnClear").addEventListener("click", () => {
+  for (const t of state.tokens) t.segments = [];
+  for (const ball of state.balls) ball.transfers = [];
+  state.forkAt = null; state.branches = []; state.activeBranchId = null; state.preforkNotes = null; // clearing the moves clears any fork on them too
+  state.totalDuration = recomputeDuration();
+  state.currentTime = clamp(state.currentTime, 0, state.totalDuration);
+  render(); updateDataPanel(); pushHistory(); refreshForkUI();
+});
+document.getElementById("btnClearNotes").addEventListener("click", () => {
+  state.annotations = [];
+  state.totalDuration = recomputeDuration();
+  render(); updateDataPanel(); pushHistory();
+});
+// Every kind of ink at once, but the roster and starting positions
+// survive — clearing the board is not the same as starting over.
+document.getElementById("btnClearAll").addEventListener("click", () => {
+  for (const t of state.tokens) t.segments = [];
+  for (const ball of state.balls) ball.transfers = [];
+  state.annotations = [];
+  state.forkAt = null; state.branches = []; state.activeBranchId = null; state.preforkNotes = null;
+  state.currentTime = 0; state.totalDuration = 8000;
+  render(); updateDataPanel(); pushHistory(); refreshForkUI();
+});
+document.getElementById("btnUndo").addEventListener("click", undo);
+document.getElementById("btnRedo").addEventListener("click", redo);
+window.addEventListener("keydown", (e) => {
+  if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
+  e.preventDefault();
+  if (e.shiftKey) redo(); else undo();
+});
+
+// Arrange mode's only two states — always exactly one active, never both
+// off (unlike the old kind-picker, this is a radio pair, not a toggle:
+// clicking the already-active button is a no-op, not a disarm).
+function setArrangeMode(mode) {
+  arrangeMode = mode;
+  document.getElementById("btnAddPlayer").setAttribute("aria-pressed", String(mode === "player"));
+  document.getElementById("btnRemove").setAttribute("aria-pressed", String(mode === "remove"));
+}
+
+function setArranging(on) {
+  state.arranging = on;
+  const btn = document.getElementById("btnArrange");
+  btn.textContent = on ? "Done" : "Arrange";
+  btn.classList.toggle("b--primary", on);
+  // The Arrange band (segmented Add-player/Remove, Save formation, ball &
+  // cone sources) shows via #app.arranging in CSS.
+  document.getElementById("app").classList.toggle("arranging", on);
+  if (on) setArrangeMode("player"); // always re-enter on the default state
+  if (on) { state.currentTime = 0; togglePlay(false); }
+  resize();
+}
+
+document.getElementById("btnArrange").addEventListener("click", () => setArranging(!state.arranging));
+document.getElementById("btnAddPlayer").addEventListener("click", () => setArrangeMode("player"));
+document.getElementById("btnRemove").addEventListener("click", () => setArrangeMode("remove"));
+
+// ---------- ball / cone sources (drag from the Arrange band onto the court) ----------
+// Replaces the canvas-drawn trays that used to sit at court.x - 24 and clipped
+// off-screen on a real iPad. Pointer capture on the chip lets the same
+// activeBallDrag / activeConeDrag / finishPointer machinery the canvas already
+// uses drive the drop; drawActiveBallDrag / drawActiveConeDrag render the
+// in-flight glyph following the finger.
+function wireSource(elId, kind) {
+  const el = document.getElementById(elId);
+  el.addEventListener("pointerdown", (e) => {
+    e.preventDefault();
+    const pt = localPoint(e);
+    if (kind === "ball") activeBallDrag = { pointerId: e.pointerId, ball: null, isNew: true, pt };
+    else activeConeDrag = { pointerId: e.pointerId, cone: null, isNew: true, pt };
+    try { el.setPointerCapture(e.pointerId); } catch (_) {}
+    render();
+  });
+  el.addEventListener("pointermove", (e) => {
+    const drag = kind === "ball" ? activeBallDrag : activeConeDrag;
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    drag.pt = localPoint(e);
+    render();
+  });
+  const end = (e) => {
+    const drag = kind === "ball" ? activeBallDrag : activeConeDrag;
+    if (!drag || e.pointerId !== drag.pointerId) return;
+    finishPointer(e); // its activeBallDrag / activeConeDrag branch does the drop
+  };
+  el.addEventListener("pointerup", end);
+  el.addEventListener("pointercancel", end);
+}
+wireSource("srcBall", "ball");
+wireSource("srcCone", "cone");
+
+// ---------- menus (Clear ▾ / Library ▾ / ⋯ overflow / branch ⋯) ----------
+// One open at a time; a click anywhere else, or Escape, closes them. Menu
+// rows that aren't switches or Library entries close the menu after their
+// own handler runs (same click).
+const MENUS = [
+  ["btnClearMenu", "menuClear"],
+  ["btnLibrary", "menuLibrary"],
+  ["btnMore", "menuMore"],
+  ["btnForkMenu", "menuFork"],
+];
+function closeAllMenus(except) {
+  for (const [trigId, menuId] of MENUS) {
+    if (menuId === except) continue;
+    document.getElementById(menuId).classList.remove("show");
+    document.getElementById(trigId).classList.remove("menu-open");
+  }
+}
+for (const [trigId, menuId] of MENUS) {
+  const trig = document.getElementById(trigId);
+  const menu = document.getElementById(menuId);
+  trig.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const willOpen = !menu.classList.contains("show");
+    closeAllMenus(willOpen ? menuId : null);
+    if (willOpen && menuId === "menuLibrary") renderLibraryMenu();
+    menu.classList.toggle("show", willOpen);
+    trig.classList.toggle("menu-open", willOpen);
+  });
+  menu.addEventListener("click", (e) => {
+    if (e.target.closest(".mi--switch")) { e.stopPropagation(); return; }        // toggles in place
+    if (e.target.closest("#libPlays, #libFormations")) { e.stopPropagation(); return; } // wireLibSection owns close
+    if (e.target.closest(".mi")) closeAllMenus();
+  });
+}
+document.addEventListener("click", () => closeAllMenus());
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAllMenus(); });
+
+// ---------- boot ----------
+// ResizeObserver (not a window "resize" listener) fires whenever the
+// canvas's own box actually changes size — window resizes, orientation
+// changes, and boot itself, whether that's the first paint or the canvas
+// going from a hidden/zero-size container to a real one. That subsumes
+// the old window-resize listener and the rAF boot retry it needed
+// (resize() could still measure 0×0 on the very first callback, with no
+// later window event to recover on) — one observer covers every case.
+new ResizeObserver(resize).observe(canvas);
+resize(); // best-effort synchronous first pass; the observer's own initial
+          // callback lands a frame later, and is the one that actually
+          // recovers if this call bails out on a still-unlaid-out canvas
+document.getElementById("btnBlank").click(); // clean slate by default; presets are opt-in
+</script>
+<script>
+// Service worker — offline shell cache. Isolated from the app scope above.
+// Registers only in a secure context (HTTPS / localhost), so plain-HTTP LAN
+// testing quietly skips it and stays online-only.
+if ("serviceWorker" in navigator) {
+  addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
