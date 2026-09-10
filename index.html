@@ -461,7 +461,7 @@
 // Stamped by prototype/deploy.sh at deploy time (UTC date + private-repo
 // short SHA); stays "dev" when served straight from source. Shown in the
 // ⋯ menu and logged on boot so a stale cached PWA is obvious.
-const BUILD = "2026-09-10 18:37Z 6b012f1";
+const BUILD = "2026-09-10 19:05Z c3f8401";
 
 const canvas = document.getElementById("court");
 const ctx = canvas.getContext("2d");
@@ -1606,6 +1606,7 @@ canvas.addEventListener("pointerdown", (e) => {
     pointerId: e.pointerId, mode, token, fromId, ball,
     points: [pt], widths: [pressureWidth(e)],
     startWall: performance.now(), startT: state.currentTime,
+    lastEventTs: e.timeStamp, // high-water mark for de-duping re-delivered coalesced samples (see pointermove)
   };
 });
 
@@ -1642,10 +1643,37 @@ canvas.addEventListener("pointermove", (e) => {
     return;
   }
   if (!activeStroke || e.pointerId !== activeStroke.pointerId) return;
+  // iPadOS Safari (seen in the installed PWA) re-delivers the previous
+  // frame's coalesced events at the head of the next pointermove's batch,
+  // so appending every sample blindly writes the same ~4 points twice per
+  // frame — a backward ~6px sawtooth in seg.points that chaikinSmooth ×3
+  // can't iron out and that renders dribble-wavify as a jagged scribble.
+  // Coalesced events keep their original, monotonically increasing
+  // timeStamp, so drop anything at or before the last one we consumed.
+  // The coord check additionally skips the exact-duplicate samples iOS
+  // emits at a slow stroke's start. If the timestamp filter would drop a
+  // whole batch (degenerate/zero stamps on some other browser), fall back
+  // to the dispatched event so capture never silently stalls.
   const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+  let appended = 0;
   for (const ev of events) {
-    activeStroke.points.push(localPoint(ev));
+    if (ev.timeStamp <= activeStroke.lastEventTs) continue;
+    activeStroke.lastEventTs = ev.timeStamp;
+    const p = localPoint(ev);
+    const prev = activeStroke.points[activeStroke.points.length - 1];
+    if (prev && p.x === prev.x && p.y === prev.y) continue;
+    activeStroke.points.push(p);
     activeStroke.widths.push(pressureWidth(ev));
+    appended++;
+  }
+  if (!appended && e.timeStamp > activeStroke.lastEventTs) {
+    activeStroke.lastEventTs = e.timeStamp;
+    const p = localPoint(e);
+    const prev = activeStroke.points[activeStroke.points.length - 1];
+    if (!prev || p.x !== prev.x || p.y !== prev.y) {
+      activeStroke.points.push(p);
+      activeStroke.widths.push(pressureWidth(e));
+    }
   }
   render();
 });
