@@ -2107,23 +2107,40 @@ function computeWavify(points, amplitude, wavelength, distanceOffset = 0) {
   const cum = new Float64Array(n);
   for (let i = 1; i < n; i++) cum[i] = cum[i - 1] + dist(points[i - 1], points[i]);
   const total = cum[n - 1];
-  if (total < 4) return points;
+  if (total < WAVIFY_STEP) return points;
+
+  // Arc length -> point on the polyline. Each sweep keeps its own
+  // forward-only cursor so the three passes below (crest centre, tangent
+  // look-behind, tangent look-ahead) stay O(n) instead of rescanning.
+  const posAt = (target, cur) => {
+    const tt = target < 0 ? 0 : target > total ? total : target;
+    while (cur.i < n - 1 && cum[cur.i] < tt) cur.i++;
+    const a = points[cur.i - 1], b = points[cur.i];
+    const segLen = cum[cur.i] - cum[cur.i - 1];
+    const f = segLen === 0 ? 0 : (tt - cum[cur.i - 1]) / segLen;
+    return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
+  };
+
+  // The crest offset direction is a tangent measured across HALF A WAVELENGTH
+  // of arc, not across one polyline segment. A slow Pencil dribble logs
+  // points a fraction of a pixel apart; the direction between two adjacent
+  // ones is pure hand-wobble, which made every crest point a random way and
+  // turned the squiggle into a jagged scribble (worse the denser the
+  // stroke). A fixed arc-length window is stable at any sampling density.
+  const half = Math.min(wavelength / 2, total / 2);
+  const cCur = { i: 1 }, backCur = { i: 1 }, fwdCur = { i: 1 };
 
   const out = [];
-  let seg = 1;
   const twoPiOverWl = (Math.PI * 2) / wavelength;
   for (let d = 0; d <= total + 1e-6; d += WAVIFY_STEP) {
-    const dd = Math.min(d, total);
-    while (seg < n - 1 && cum[seg] < dd) seg++;
-    const a = points[seg - 1], b = points[seg];
-    const segLen = cum[seg] - cum[seg - 1];
-    const t = segLen === 0 ? 0 : (dd - cum[seg - 1]) / segLen;
-    const bx = a.x + (b.x - a.x) * t, by = a.y + (b.y - a.y) * t;
-    let dx = b.x - a.x, dy = b.y - a.y;
-    const dlen = Math.hypot(dx, dy) || 1;
-    const nx = -dy / dlen, ny = dx / dlen;
+    const dd = d > total ? total : d;
+    const c = posAt(dd, cCur);
+    const back = posAt(dd - half, backCur), fwd = posAt(dd + half, fwdCur);
+    const tx = fwd.x - back.x, ty = fwd.y - back.y;
+    const tl = Math.hypot(tx, ty) || 1;
+    const nx = -ty / tl, ny = tx / tl;
     const s = Math.sin((distanceOffset + dd) * twoPiOverWl) * amplitude;
-    out.push({ x: bx + nx * s, y: by + ny * s });
+    out.push({ x: c.x + nx * s, y: c.y + ny * s });
     if (dd === total) break;
   }
   return out;
