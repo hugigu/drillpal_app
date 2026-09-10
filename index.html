@@ -333,6 +333,12 @@
     </div>
     <button class="b b--quiet" id="btnSaveFormation">Save formation</button>
     <div class="band-div"></div>
+    <span class="band-label">Court</span>
+    <div class="segmented" id="segCourt">
+      <button id="btnCourtHalf" aria-pressed="true">Half</button>
+      <button id="btnCourtFull" aria-pressed="false">Full</button>
+    </div>
+    <div class="band-div"></div>
     <span class="band-label">Drag on</span>
     <button class="source" id="srcBall">
       <span class="glyph"><svg viewBox="0 0 24 24" aria-hidden="true">
@@ -491,6 +497,11 @@ const state = {
   totalDuration: 8000,
   playing: false,
   arranging: false,
+  // "half" (one hoop, upright) or "full" (two hoops, court on its side).
+  // Per-play, part of snapshotDocument — a full-court press and a
+  // half-court set are different plays. Switching it starts a blank play
+  // on that court (see setCourtMode); it never remaps existing ink.
+  courtMode: "half",
   ghostsEnabled: true,
   numbersEnabled: false, // session UI preference like ghostsEnabled, not part of snapshotDocument — a pure DISPLAY toggle (see drawToken); every token gets a number regardless, this only shows/hides it
   // One global fork point per play (no nesting, no per-token forks — see
@@ -534,6 +545,7 @@ function snapshotDocument() {
   return JSON.parse(JSON.stringify({
     tokens: state.tokens, balls: state.balls, cones: state.cones,
     annotations: state.annotations, totalDuration: state.totalDuration,
+    courtMode: state.courtMode,
     forkAt: state.forkAt, branches: state.branches, activeBranchId: state.activeBranchId,
     preforkNotes: state.preforkNotes,
   }));
@@ -556,8 +568,11 @@ function restoreSnapshot(snap) {
   const c = JSON.parse(JSON.stringify(snap));
   state.tokens = c.tokens; state.balls = c.balls; state.cones = c.cones;
   state.annotations = c.annotations; state.totalDuration = c.totalDuration;
+  state.courtMode = c.courtMode ?? "half"; // plays saved before full-court existed
   state.forkAt = c.forkAt ?? null; state.branches = c.branches ?? []; state.activeBranchId = c.activeBranchId ?? null;
   state.preforkNotes = c.preforkNotes ?? null;
+  resize(); // courtMode may have changed the box aspect — re-letterbox before the caller renders
+  refreshCourtUI();
 }
 
 function undo() {
@@ -580,11 +595,13 @@ function updateUndoRedoButtons() {
 }
 
 // ---------- court geometry ----------
-// Real FIBA half-court dimensions, in meters. Everything drawCourt()
-// draws, plus the hoop position used for shot-detection/ball-resting
-// logic elsewhere, derives from these — not from arbitrary fractions.
+// Real FIBA dimensions, in meters. Everything drawCourt() draws, plus the
+// hoop position(s) used for shot-detection/ball-resting logic elsewhere,
+// derives from these — not from arbitrary fractions. HALF_LENGTH is the
+// baseline-to-division distance of a half court; FULL_LENGTH the whole
+// 28m floor (see state.courtMode).
 const FIBA = {
-  WIDTH: 15, HALF_LENGTH: 14,
+  WIDTH: 15, HALF_LENGTH: 14, FULL_LENGTH: 28,
   LANE_W: 4.9, LANE_L: 5.8,
   FT_CIRCLE_R: 1.8,
   THREE_PT_R: 6.75, THREE_PT_CORNER_DX: 6.6, // corner line sits 0.9m inside the sideline
@@ -593,21 +610,53 @@ const FIBA = {
   RESTRICTED_AREA_R: 1.25,
   CENTER_CIRCLE_R: 1.8,
 };
-const FIBA_ASPECT = FIBA.WIDTH / FIBA.HALF_LENGTH; // > 1: real court is wider than it is long (half)
 
 let court = { x: 0, y: 0, w: 0, h: 0 };
 
-// Pixels-per-meter. Exact for both axes since resize() letterboxes the
-// court box to FIBA_ASPECT — never stretches it — so a real circle
-// stays a circle.
-function courtScale() { return court.w / FIBA.WIDTH; }
+// The court box's width:height ratio — the shape resize() letterboxes to,
+// never stretches. Half court: 15m wide x 14m long, drawn upright (hoop at
+// the bottom), so > 1. Full court: the 28m length runs left-to-right and
+// the 15m width top-to-bottom (hoops at the left and right ends), so 28:15.
+function courtAspect() {
+  return state.courtMode === "full"
+    ? FIBA.FULL_LENGTH / FIBA.WIDTH
+    : FIBA.WIDTH / FIBA.HALF_LENGTH;
+}
 
-// The point on the floor under the center of the rim — everything
+// Pixels-per-meter. Exact for both axes since resize() letterboxes the
+// court box to courtAspect() — never stretches it — so a real circle
+// stays a circle. The long axis of the box (court.w) is 15m in half mode
+// and the full 28m in full mode.
+function courtScale() {
+  return court.w / (state.courtMode === "full" ? FIBA.FULL_LENGTH : FIBA.WIDTH);
+}
+
+// The point(s) on the floor under the center of a rim — everything
 // hoop-relative (3pt arc, shot detection, ball resting position) is
-// measured from here.
-function hoopPoint() {
+// measured from here. Half court: one hoop, at the bottom-center.
+// Full court: two, at the left and right ends, vertically centered.
+function hoopPoints() {
   const scale = courtScale();
-  return { x: court.x + court.w / 2, y: court.y + court.h - FIBA.HOOP_DIST * scale };
+  if (state.courtMode === "full") {
+    const cy = court.y + court.h / 2;
+    return [
+      { x: court.x + FIBA.HOOP_DIST * scale, y: cy },
+      { x: court.x + court.w - FIBA.HOOP_DIST * scale, y: cy },
+    ];
+  }
+  return [{ x: court.x + court.w / 2, y: court.y + court.h - FIBA.HOOP_DIST * scale }];
+}
+
+// The hoop closest to a given point — the one a shot near it counts
+// against, and the one a held ball tucks toward.
+function nearestHoop(pt) {
+  const hs = hoopPoints();
+  let best = hs[0], bestD = Infinity;
+  for (const h of hs) {
+    const d = dist(h, pt);
+    if (d < bestD) { bestD = d; best = h; }
+  }
+  return best;
 }
 
 // Cached canvas geometry — resize() is the ONLY place that reads canvas
@@ -634,11 +683,12 @@ function resize() {
   const pad = 28;
   const availW = rect.width - pad * 2;
   const availH = rect.height - pad * 2;
-  // True FIBA half-court proportions (15m wide x 14m long) — letterboxed
-  // to fit, not stretched, so every marking drawCourt() draws stays a
-  // real circle/arc instead of an ellipse.
-  let w = availW, h = w / FIBA_ASPECT;
-  if (h > availH) { h = availH; w = h * FIBA_ASPECT; }
+  // True FIBA proportions (half: 15x14 upright; full: 28x15 on its side) —
+  // letterboxed to fit, not stretched, so every marking drawCourt() draws
+  // stays a real circle/arc instead of an ellipse.
+  const aspect = courtAspect();
+  let w = availW, h = w / aspect;
+  if (h > availH) { h = availH; w = h * aspect; }
 
   const blockX = (rect.width - w) / 2;
   const blockTop = (rect.height - h) / 2;
@@ -1315,8 +1365,9 @@ function ballPosAt(ball, t, angleOffset = 0) {
   const hp = tokenPosAt(holder, t);
   // sits on the side facing the basket, overlapping the player by about
   // a third of the ball's own diameter — close enough to read as "held",
-  // not floating beside them
-  const hoop = hoopPoint();
+  // not floating beside them. On a full court that's whichever hoop the
+  // holder is nearer to.
+  const hoop = nearestHoop(hp);
   let dx = hoop.x - hp.x, dy = hoop.y - hp.y;
   if (angleOffset) {
     const c = Math.cos(angleOffset), s = Math.sin(angleOffset);
@@ -1330,7 +1381,10 @@ function ballPosAt(ball, t, angleOffset = 0) {
 }
 
 function nearHoop(pt, radius) {
-  return dist(pt, hoopPoint()) < (radius != null ? radius : court.w * 0.1);
+  // default catch radius ~1.5m — was court.w * 0.1, identical at half court
+  // but expressed in meters so it holds on a full court's wider box too
+  const r = radius != null ? radius : courtScale() * 1.5;
+  return hoopPoints().some(h => dist(pt, h) < r);
 }
 
 // ---------- hit testing ----------
@@ -1794,71 +1848,92 @@ function render() {
   drawTransport();
 }
 
-// Real FIBA half-court markings (see the FIBA constants above), all
-// derived from courtScale()/hoopPoint() so this stays in sync with
-// shot-detection and the ball's resting position elsewhere.
+// One end's FIBA markings (lane, free-throw circle, restricted-area arc,
+// backboard, rim, three-point line), drawn in a LOCAL frame the caller
+// sets up with translate()/rotate(): origin on the baseline's midpoint,
+// local +y pointing OUT of the court (interior is -y), local x along the
+// baseline. That's exactly the half-court's own screen orientation, so
+// this is the old drawCourt() body with cx->0, baseline->0, hoop->(0,hy).
+// drawCourt() calls it once (half) or twice mirrored (full).
+function drawEndMarkings() {
+  const scale = courtScale();
+  const hy = -FIBA.HOOP_DIST * scale; // hoop center, local coords
+
+  // key / lane (rectangular since the 2010 FIBA rule change)
+  const laneW = FIBA.LANE_W * scale, laneL = FIBA.LANE_L * scale;
+  ctx.strokeRect(-laneW / 2, -laneL, laneW, laneL);
+
+  // free-throw circle, on the lane's inner edge — only the court-side half
+  ctx.beginPath();
+  ctx.arc(0, -laneL, FIBA.FT_CIRCLE_R * scale, Math.PI, Math.PI * 2);
+  ctx.stroke();
+
+  // restricted-area arc, around the hoop
+  ctx.beginPath();
+  ctx.arc(0, hy, FIBA.RESTRICTED_AREA_R * scale, Math.PI, Math.PI * 2);
+  ctx.stroke();
+
+  // backboard
+  const bbY = -FIBA.BACKBOARD_DIST * scale;
+  const bbHalf = (FIBA.BACKBOARD_W / 2) * scale;
+  ctx.beginPath();
+  ctx.moveTo(-bbHalf, bbY);
+  ctx.lineTo(bbHalf, bbY);
+  ctx.stroke();
+
+  // rim
+  ctx.beginPath();
+  ctx.arc(0, hy, FIBA.RIM_R * scale, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // three-point line: straight corner segments (0.9m inside each sideline)
+  // meeting a true 6.75m arc around the hoop — one continuous path.
+  const cornerDX = FIBA.THREE_PT_CORNER_DX * scale;
+  const cornerDY = Math.sqrt(FIBA.THREE_PT_R ** 2 - FIBA.THREE_PT_CORNER_DX ** 2) * scale;
+  const angleLeft = Math.atan2(-cornerDY, -cornerDX);
+  const angleRight = Math.atan2(-cornerDY, cornerDX);
+  ctx.beginPath();
+  ctx.moveTo(-cornerDX, 0);
+  ctx.lineTo(-cornerDX, hy - cornerDY);
+  ctx.arc(0, hy, FIBA.THREE_PT_R * scale, angleLeft, angleRight);
+  ctx.lineTo(cornerDX, 0);
+  ctx.stroke();
+}
+
+// Real FIBA markings (see the FIBA constants above), all derived from
+// courtScale()/hoopPoints() so this stays in sync with shot-detection and
+// the ball's resting position elsewhere. Half court: one upright end plus
+// the center-circle half that pokes in. Full court (box on its side):
+// division line, full center circle, and both ends mirrored.
 function drawCourt() {
   const { x, y, w, h } = court;
   const scale = courtScale();
-  const cx = x + w / 2;
-  const baseline = y + h;
-  const hoop = hoopPoint();
+  const full = state.courtMode === "full";
 
   ctx.save();
   ctx.fillStyle = getCssVar("--court");
   ctx.fillRect(x, y, w, h);
   ctx.strokeStyle = getCssVar("--court-line");
   ctx.lineWidth = 2;
-  ctx.strokeRect(x, y, w, h); // sidelines + baseline + halfcourt line
+  ctx.strokeRect(x, y, w, h); // sidelines + baseline(s)
 
-  // center circle — only the half that pokes into this half-court
-  ctx.beginPath();
-  ctx.arc(cx, y, FIBA.CENTER_CIRCLE_R * scale, 0, Math.PI);
-  ctx.stroke();
-
-  // key / lane (rectangular since the 2010 FIBA rule change)
-  const laneW = FIBA.LANE_W * scale, laneL = FIBA.LANE_L * scale;
-  const laneX = cx - laneW / 2, laneTop = baseline - laneL;
-  ctx.strokeRect(laneX, laneTop, laneW, laneL);
-
-  // free-throw circle, centered on the free-throw line (the lane's top edge)
-  ctx.beginPath();
-  ctx.arc(cx, laneTop, FIBA.FT_CIRCLE_R * scale, Math.PI, Math.PI * 2);
-  ctx.stroke();
-
-  // restricted-area arc, around the hoop
-  ctx.beginPath();
-  ctx.arc(hoop.x, hoop.y, FIBA.RESTRICTED_AREA_R * scale, Math.PI, Math.PI * 2);
-  ctx.stroke();
-
-  // backboard
-  const backboardY = baseline - FIBA.BACKBOARD_DIST * scale;
-  const backboardHalf = (FIBA.BACKBOARD_W / 2) * scale;
-  ctx.beginPath();
-  ctx.moveTo(cx - backboardHalf, backboardY);
-  ctx.lineTo(cx + backboardHalf, backboardY);
-  ctx.stroke();
-
-  // rim
-  ctx.beginPath();
-  ctx.arc(hoop.x, hoop.y, FIBA.RIM_R * scale, 0, Math.PI * 2);
-  ctx.stroke();
-
-  // three-point line: straight corner segments (0.9m inside each
-  // sideline) meeting the arc exactly where that line intersects a
-  // true 6.75m circle around the hoop — one continuous path.
-  const cornerDX = FIBA.THREE_PT_CORNER_DX * scale;
-  const cornerDY = Math.sqrt(FIBA.THREE_PT_R ** 2 - FIBA.THREE_PT_CORNER_DX ** 2) * scale;
-  const leftCorner = { x: hoop.x - cornerDX, y: hoop.y - cornerDY };
-  const rightCorner = { x: hoop.x + cornerDX, y: hoop.y - cornerDY };
-  const angleLeft = Math.atan2(leftCorner.y - hoop.y, leftCorner.x - hoop.x);
-  const angleRight = Math.atan2(rightCorner.y - hoop.y, rightCorner.x - hoop.x);
-  ctx.beginPath();
-  ctx.moveTo(leftCorner.x, baseline);
-  ctx.lineTo(leftCorner.x, leftCorner.y);
-  ctx.arc(hoop.x, hoop.y, FIBA.THREE_PT_R * scale, angleLeft, angleRight);
-  ctx.lineTo(rightCorner.x, baseline);
-  ctx.stroke();
+  if (full) {
+    const midX = x + w / 2, midY = y + h / 2;
+    ctx.beginPath();
+    ctx.moveTo(midX, y); ctx.lineTo(midX, y + h); // division line
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(midX, midY, FIBA.CENTER_CIRCLE_R * scale, 0, Math.PI * 2); // full center circle
+    ctx.stroke();
+    ctx.save(); ctx.translate(x, midY);     ctx.rotate(Math.PI / 2);  drawEndMarkings(); ctx.restore(); // left end
+    ctx.save(); ctx.translate(x + w, midY); ctx.rotate(-Math.PI / 2); drawEndMarkings(); ctx.restore(); // right end
+  } else {
+    const cx = x + w / 2;
+    ctx.beginPath();
+    ctx.arc(cx, y, FIBA.CENTER_CIRCLE_R * scale, 0, Math.PI); // center-circle half on the division line
+    ctx.stroke();
+    ctx.save(); ctx.translate(cx, y + h); drawEndMarkings(); ctx.restore(); // the one end
+  }
 
   ctx.restore();
 }
@@ -2595,6 +2670,7 @@ function toast(text, bg) {
 function buildPlayDocument() {
   const labelOf = (id) => { const t = tokenById(id); return t ? t.label : null; };
   return {
+    court: state.courtMode, // "half" | "full"
     formation: state.tokens.map(t => ({
       id: t.id, kind: t.kind, label: t.label, home: { x: round(t.fx), y: round(t.fy) },
       roleChanges: t.roleChanges.map(rc => ({ atMs: Math.round(rc.t), kind: rc.kind })),
@@ -2748,7 +2824,10 @@ document.getElementById("btnRemoveFork").addEventListener("click", () => {
 });
 refreshForkUI();
 
-document.getElementById("btnBlank").addEventListener("click", () => {
+// Wipes the play back to nothing on the CURRENT court. courtMode is left
+// as-is — the "New / blank play" button keeps whatever court you're on;
+// setCourtMode() is what flips it (and calls through here afterward).
+function blankPlay({ arrange = true } = {}) {
   state.tokens = [];
   state.annotations = [];
   state.balls = []; // no balls until the coach drags one on from the tray
@@ -2756,11 +2835,35 @@ document.getElementById("btnBlank").addEventListener("click", () => {
   state.currentTime = 0;
   state.totalDuration = 8000;
   state.forkAt = null; state.branches = []; state.activeBranchId = null; state.preforkNotes = null;
+  resize(); // courtMode may have just changed — re-letterbox the box before drawing
   render(); updateDataPanel();
   resetHistory();
   refreshForkUI();
-  setArranging(true); // building a roster from nothing is an Arrange-time activity
-});
+  if (arrange) setArranging(true); // building a roster from nothing is an Arrange-time activity
+}
+document.getElementById("btnBlank").addEventListener("click", () => blankPlay());
+
+// The Half | Full segmented control in the Arrange band. Court type is an
+// up-front decision, so switching it starts a fresh play on that court —
+// a non-empty play gets a confirm first (same spirit as "New / blank
+// play"). A blank play switches silently. History resets either way.
+function refreshCourtUI() {
+  document.getElementById("btnCourtHalf").setAttribute("aria-pressed", String(state.courtMode !== "full"));
+  document.getElementById("btnCourtFull").setAttribute("aria-pressed", String(state.courtMode === "full"));
+}
+function setCourtMode(mode) {
+  if (mode === state.courtMode) return;
+  const nonEmpty = state.tokens.length > 0 || state.cones.length > 0 || hasDrawnContent();
+  if (nonEmpty && !confirm(
+    `Switch to ${mode === "full" ? "full" : "half"} court? This starts a new blank play on that court — the current players and lines are cleared.`
+  )) return; // leave state (and the control) untouched
+  state.courtMode = mode;
+  blankPlay();
+  refreshCourtUI();
+  toast(`${mode === "full" ? "full" : "half"} court`, getCssVar("--accent"));
+}
+document.getElementById("btnCourtHalf").addEventListener("click", () => setCourtMode("half"));
+document.getElementById("btnCourtFull").addEventListener("click", () => setCourtMode("full"));
 function recomputeDuration() {
   let maxT = 0;
   for (const t of state.tokens) for (const seg of t.segments) maxT = Math.max(maxT, seg.endT);

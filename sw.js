@@ -1,7 +1,7 @@
 /* DrillPal service worker — offline shell cache.
    Bump CACHE when any precached file changes; the new worker drops the old
    cache on activate and the update is live on the next launch. */
-const CACHE = "drillpal-v1";
+const CACHE = "drillpal-v2";
 
 const SHELL = [
   "./",
