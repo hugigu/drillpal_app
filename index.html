@@ -423,8 +423,21 @@
   </footer>
 </div>
 
-<script>
-"use strict";
+<script type="module">
+/* Module script (slice 0): needed so this file can `import` the built core
+   from ./core.js. Three consequences, all checked before the switch:
+     - Modules are always strict, so the old "use strict" is redundant.
+     - Modules are deferred. All the markup this script touches is above it,
+       so nothing changes; the ResizeObserver boot at the bottom still runs
+       against a laid-out DOM.
+     - Nothing here is global any more. Verified safe: there are no inline
+       on*= handlers in the markup and nothing assigns to window.*, so no
+       outside caller depends on these names.
+   NOTE: module scripts do NOT run from file:// — open this through the Vite
+   dev server (`npm run dev`, then /prototype/index.html), not by
+   double-clicking the file. */
+
+import { CORE_VERSION } from "./core.js";
 
 /* ============================================================
    DrillPal ink prototype — phase 01.
@@ -461,7 +474,7 @@
 // Stamped by prototype/deploy.sh at deploy time (UTC date + private-repo
 // short SHA); stays "dev" when served straight from source. Shown in the
 // ⋯ menu and logged on boot so a stale cached PWA is obvious.
-const BUILD = "2026-09-10 19:29Z 53a3ab5";
+const BUILD = "2026-09-10 20:55Z 9389f29";
 
 const canvas = document.getElementById("court");
 const ctx = canvas.getContext("2d");
@@ -3165,8 +3178,11 @@ document.addEventListener("click", () => closeAllMenus());
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAllMenus(); });
 
 // ---------- boot ----------
-document.getElementById("buildStamp").textContent = "build " + BUILD;
-console.log("DrillPal build " + BUILD);
+// The core version is here as slice 0's end-to-end import proof: if this
+// line shows a core version, then TS -> vite build -> ESM import -> SW
+// precache -> deployed mirror -> offline PWA all work. Keep it displayed.
+document.getElementById("buildStamp").textContent = "build " + BUILD + " · core " + CORE_VERSION;
+console.log("DrillPal build " + BUILD + " · core " + CORE_VERSION);
 
 // ResizeObserver (not a window "resize" listener) fires whenever the
 // canvas's own box actually changes size — window resizes, orientation
