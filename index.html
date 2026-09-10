@@ -497,10 +497,12 @@ const state = {
   totalDuration: 8000,
   playing: false,
   arranging: false,
-  // "half" (one hoop, upright) or "full" (two hoops, court on its side).
-  // Per-play, part of snapshotDocument — a full-court press and a
-  // half-court set are different plays. Switching it starts a blank play
-  // on that court (see setCourtMode); it never remaps existing ink.
+  // "half" (one hoop) or "full" (two hoops). Per-play, part of
+  // snapshotDocument — a full-court press and a half-court set are
+  // different plays. Switching it starts a blank play on that court (see
+  // setCourtMode); it never remaps existing ink. The full court's on-screen
+  // orientation follows the viewport (see fullCourtHorizontal), it isn't
+  // stored.
   courtMode: "half",
   ghostsEnabled: true,
   numbersEnabled: false, // session UI preference like ghostsEnabled, not part of snapshotDocument — a pure DISPLAY toggle (see drawToken); every token gets a number regardless, this only shows/hides it
@@ -613,38 +615,53 @@ const FIBA = {
 
 let court = { x: 0, y: 0, w: 0, h: 0 };
 
+// Full court only: is the 28m length currently running left-to-right (true)
+// or top-to-bottom (false)? resize() sets this from the canvas's own
+// aspect each layout pass, so the court follows the device — hoops top &
+// bottom in portrait, left & right in landscape, whichever fills the
+// screen without big side gutters. Meaningless when courtMode === "half".
+let fullCourtHorizontal = false;
+
 // The court box's width:height ratio — the shape resize() letterboxes to,
 // never stretches. Half court: 15m wide x 14m long, drawn upright (hoop at
-// the bottom), so > 1. Full court: the 28m length runs left-to-right and
-// the 15m width top-to-bottom (hoops at the left and right ends), so 28:15.
+// the bottom), so > 1. Full court: 28m length along the viewport's long
+// axis — 28:15 in landscape, 15:28 in portrait.
 function courtAspect() {
-  return state.courtMode === "full"
+  if (state.courtMode !== "full") return FIBA.WIDTH / FIBA.HALF_LENGTH;
+  return fullCourtHorizontal
     ? FIBA.FULL_LENGTH / FIBA.WIDTH
-    : FIBA.WIDTH / FIBA.HALF_LENGTH;
+    : FIBA.WIDTH / FIBA.FULL_LENGTH;
 }
 
 // Pixels-per-meter. Exact for both axes since resize() letterboxes the
 // court box to courtAspect() — never stretches it — so a real circle
-// stays a circle. The long axis of the box (court.w) is 15m in half mode
-// and the full 28m in full mode.
+// stays a circle. The 15m width maps to court.w everywhere EXCEPT a
+// horizontal full court, where court.w is the 28m length instead.
 function courtScale() {
-  return court.w / (state.courtMode === "full" ? FIBA.FULL_LENGTH : FIBA.WIDTH);
+  return court.w / (state.courtMode === "full" && fullCourtHorizontal ? FIBA.FULL_LENGTH : FIBA.WIDTH);
 }
 
 // The point(s) on the floor under the center of a rim — everything
 // hoop-relative (3pt arc, shot detection, ball resting position) is
-// measured from here. Half court: one hoop, at the bottom-center.
-// Full court: two, at the left and right ends, vertically centered.
+// measured from here. Half court: one hoop, bottom-center. Full court:
+// two — top & bottom (portrait) or left & right (landscape).
 function hoopPoints() {
-  const scale = courtScale();
+  const hd = FIBA.HOOP_DIST * courtScale();
   if (state.courtMode === "full") {
-    const cy = court.y + court.h / 2;
+    if (fullCourtHorizontal) {
+      const cy = court.y + court.h / 2;
+      return [
+        { x: court.x + hd, y: cy },
+        { x: court.x + court.w - hd, y: cy },
+      ];
+    }
+    const cx = court.x + court.w / 2;
     return [
-      { x: court.x + FIBA.HOOP_DIST * scale, y: cy },
-      { x: court.x + court.w - FIBA.HOOP_DIST * scale, y: cy },
+      { x: cx, y: court.y + hd },
+      { x: cx, y: court.y + court.h - hd },
     ];
   }
-  return [{ x: court.x + court.w / 2, y: court.y + court.h - FIBA.HOOP_DIST * scale }];
+  return [{ x: court.x + court.w / 2, y: court.y + court.h - hd }];
 }
 
 // The hoop closest to a given point — the one a shot near it counts
@@ -683,7 +700,10 @@ function resize() {
   const pad = 28;
   const availW = rect.width - pad * 2;
   const availH = rect.height - pad * 2;
-  // True FIBA proportions (half: 15x14 upright; full: 28x15 on its side) —
+  // Full court follows the canvas: lay the 28m length along whichever axis
+  // is longer, so it fills the screen instead of leaving big side gutters.
+  fullCourtHorizontal = availW >= availH;
+  // True FIBA proportions (half: 15x14 upright; full: 28x15 or 15x28) —
   // letterboxed to fit, not stretched, so every marking drawCourt() draws
   // stays a real circle/arc instead of an ellipse.
   const aspect = courtAspect();
@@ -1903,8 +1923,9 @@ function drawEndMarkings() {
 // Real FIBA markings (see the FIBA constants above), all derived from
 // courtScale()/hoopPoints() so this stays in sync with shot-detection and
 // the ball's resting position elsewhere. Half court: one upright end plus
-// the center-circle half that pokes in. Full court (box on its side):
-// division line, full center circle, and both ends mirrored.
+// the center-circle half that pokes in. Full court: division line, full
+// center circle, and both ends mirrored — laid out along whichever screen
+// axis is longer (see fullCourtHorizontal).
 function drawCourt() {
   const { x, y, w, h } = court;
   const scale = courtScale();
@@ -1920,13 +1941,22 @@ function drawCourt() {
   if (full) {
     const midX = x + w / 2, midY = y + h / 2;
     ctx.beginPath();
-    ctx.moveTo(midX, y); ctx.lineTo(midX, y + h); // division line
-    ctx.stroke();
-    ctx.beginPath();
     ctx.arc(midX, midY, FIBA.CENTER_CIRCLE_R * scale, 0, Math.PI * 2); // full center circle
     ctx.stroke();
-    ctx.save(); ctx.translate(x, midY);     ctx.rotate(Math.PI / 2);  drawEndMarkings(); ctx.restore(); // left end
-    ctx.save(); ctx.translate(x + w, midY); ctx.rotate(-Math.PI / 2); drawEndMarkings(); ctx.restore(); // right end
+    ctx.beginPath();
+    if (fullCourtHorizontal) {
+      ctx.moveTo(midX, y); ctx.lineTo(midX, y + h); // vertical division line
+    } else {
+      ctx.moveTo(x, midY); ctx.lineTo(x + w, midY); // horizontal division line
+    }
+    ctx.stroke();
+    if (fullCourtHorizontal) {
+      ctx.save(); ctx.translate(x, midY);     ctx.rotate(Math.PI / 2);  drawEndMarkings(); ctx.restore(); // left end
+      ctx.save(); ctx.translate(x + w, midY); ctx.rotate(-Math.PI / 2); drawEndMarkings(); ctx.restore(); // right end
+    } else {
+      ctx.save(); ctx.translate(midX, y + h); drawEndMarkings(); ctx.restore();                  // bottom end
+      ctx.save(); ctx.translate(midX, y); ctx.rotate(Math.PI); drawEndMarkings(); ctx.restore(); // top end
+    }
   } else {
     const cx = x + w / 2;
     ctx.beginPath();
