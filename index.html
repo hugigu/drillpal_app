@@ -474,7 +474,7 @@ import { CORE_VERSION } from "./core.js";
 // Stamped by prototype/deploy.sh at deploy time (UTC date + private-repo
 // short SHA); stays "dev" when served straight from source. Shown in the
 // ⋯ menu and logged on boot so a stale cached PWA is obvious.
-const BUILD = "2026-09-10 20:55Z 9389f29";
+const BUILD = "2026-09-10 21:48Z d1d2dac";
 
 const canvas = document.getElementById("court");
 const ctx = canvas.getContext("2d");
@@ -574,6 +574,14 @@ function snapshotDocument() {
     courtMode: state.courtMode,
     forkAt: state.forkAt, branches: state.branches, activeBranchId: state.activeBranchId,
     preforkNotes: state.preforkNotes,
+    // Capture-time court box. Stroke points are stored in absolute canvas
+    // pixels, so without this the box they were drawn in has to be RECOVERED
+    // later from the tokens' fx/fy + homeX/homeY pairs — which works, but
+    // needs at least one token. A notes-only play has none, and was therefore
+    // unrecoverable. Stamping the box makes every save self-describing
+    // regardless of what's on the court. restoreSnapshot ignores this field
+    // (it reads named fields only), so nothing here changes on load.
+    layout: { x: court.x, y: court.y, w: court.w, h: court.h, horizontal: fullCourtHorizontal },
   }));
 }
 
@@ -928,7 +936,7 @@ function loadSavedFormation(name) {
 // above. Stores snapshotDocument() verbatim: the exact structure
 // undo/redo already round-trips (tokens, balls, cones, notes, duration,
 // forkAt/branches), so recall is just restoreSnapshot() + a history
-// reset. Deliberately NOT buildPlayDocument() — that export is lossy
+// reset. Deliberately NOT buildDebugView() — that export is lossy
 // (decimated paths, label-keyed, drops branches) and can't reload
 // faithfully. Backend/sync, file import/export, and multi-branch export
 // stay deferred. ----------
@@ -2829,7 +2837,12 @@ function toast(text, bg) {
 }
 
 // ---------- data panel: the play as data, not video ----------
-function buildPlayDocument() {
+// Renamed from buildPlayDocument (slice 1). This is the LOSSY DEBUG VIEW
+// behind the data panel and its Copy button: it rounds, keeps every 4th path
+// point, swaps token ids for labels, and carries no fork data. The old name
+// made it sound like the document format, which it is not — snapshotDocument()
+// is that, and ⋯ → Copy debug wraps exactly it, verbatim.
+function buildDebugView() {
   const labelOf = (id) => { const t = tokenById(id); return t ? t.label : null; };
   return {
     court: state.courtMode, // "half" | "full"
@@ -2860,7 +2873,7 @@ function buildPlayDocument() {
 function round(n) { return Math.round(n * 100) / 100; }
 
 function updateDataPanel() {
-  document.getElementById("dataOut").textContent = JSON.stringify(buildPlayDocument(), null, 2);
+  document.getElementById("dataOut").textContent = JSON.stringify(buildDebugView(), null, 2);
 }
 
 document.getElementById("btnData").addEventListener("click", () => {
@@ -2873,7 +2886,7 @@ document.getElementById("btnCloseData").addEventListener("click", () => {
 document.getElementById("btnCopy").addEventListener("click", async () => {
   try { await navigator.clipboard.writeText(document.getElementById("dataOut").textContent); toast("copied", getCssVar("--accent")); } catch {}
 });
-// Non-lossy dump for sharing a bug: full stroke points (buildPlayDocument
+// Non-lossy dump for sharing a bug: full stroke points (buildDebugView
 // decimates them), plus the build string and UA so there's no ambiguity
 // about what version produced it. Paste straight into a chat.
 document.getElementById("btnCopyDebug").addEventListener("click", async () => {
