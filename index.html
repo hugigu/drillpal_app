@@ -461,7 +461,7 @@
 // Stamped by prototype/deploy.sh at deploy time (UTC date + private-repo
 // short SHA); stays "dev" when served straight from source. Shown in the
 // ⋯ menu and logged on boot so a stale cached PWA is obvious.
-const BUILD = "2026-09-10 19:05Z c3f8401";
+const BUILD = "2026-09-10 19:21Z 963023f";
 
 const canvas = document.getElementById("court");
 const ctx = canvas.getContext("2d");
@@ -1267,6 +1267,23 @@ function tokenPosAt(token, t) {
   return pos;
 }
 
+// Which way the token is moving at t, as an unnormalised {x,y} (null if
+// still). Forward finite-difference along the animated path, falling back
+// to a backward one so a token that just finished a segment still reports
+// the direction it was travelling. Used to tuck a held ball onto the
+// player's leading edge (see ballPosAt).
+function holderTravelDir(token, t) {
+  const eps = 30; // ms — enough to register any real motion given the 280ms min segment
+  const p0 = tokenPosAt(token, t);
+  const pf = tokenPosAt(token, t + eps);
+  let dx = pf.x - p0.x, dy = pf.y - p0.y;
+  if (dx === 0 && dy === 0) {
+    const pb = tokenPosAt(token, t - eps);
+    dx = p0.x - pb.x; dy = p0.y - pb.y;
+  }
+  return (dx || dy) ? { x: dx, y: dy } : null;
+}
+
 // Role (offense/defense) is purely cosmetic — color only, no rules
 // attached (either can hold the ball) — but it's still time-varying:
 // a coach can switch a player's role mid-play (double-tap them outside
@@ -1394,12 +1411,21 @@ function ballPosAt(ball, t, angleOffset = 0) {
   }
   const holder = tokenById(holderId);
   const hp = tokenPosAt(holder, t);
-  // sits on the side facing the basket, overlapping the player by about
-  // a third of the ball's own diameter — close enough to read as "held",
-  // not floating beside them. On a full court that's whichever hoop the
-  // holder is nearer to.
-  const hoop = nearestHoop(hp);
-  let dx = hoop.x - hp.x, dy = hoop.y - hp.y;
+  // Sits on the holder's leading edge — the way they're moving — so the
+  // ball reads as carried in front on a drive, overlapping the player by
+  // about a third of the ball's own diameter. When they're standing still
+  // there's no travel direction, so fall back to the nearer basket as a
+  // neutral rest side (on a half court that's the only hoop — unchanged;
+  // on a full court it stops the ball trailing behind a player advancing
+  // from their own end, and stops it flipping sides at mid-court).
+  const dir = holderTravelDir(holder, t);
+  let dx, dy;
+  if (dir) {
+    dx = dir.x; dy = dir.y;
+  } else {
+    const hoop = nearestHoop(hp);
+    dx = hoop.x - hp.x; dy = hoop.y - hp.y;
+  }
   if (angleOffset) {
     const c = Math.cos(angleOffset), s = Math.sin(angleOffset);
     const ndx = dx * c - dy * s, ndy = dx * s + dy * c;

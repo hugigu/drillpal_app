@@ -1,7 +1,7 @@
 /* DrillPal service worker — offline shell cache.
    Bump CACHE when any precached file changes; the new worker drops the old
    cache on activate and the update is live on the next launch. */
-const CACHE = "drillpal-202609101905-c3f8401"; // prototype/deploy.sh stamps a unique value per deploy
+const CACHE = "drillpal-202609101921-963023f"; // prototype/deploy.sh stamps a unique value per deploy
 
 const SHELL = [
   "./",
