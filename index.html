@@ -318,6 +318,7 @@
       <div class="menu right" id="menuMore">
         <div class="mi mi--switch" id="btnGhosts" role="switch" aria-checked="true" tabindex="0">Ghosts<span class="mi-sw"></span></div>
         <div class="mi mi--switch" id="btnNumbers" role="switch" aria-checked="false" tabindex="0">Player numbers<span class="mi-sw"></span></div>
+        <div class="mi mi--switch" id="btnDeclutter" role="switch" aria-checked="false" tabindex="0">Declutter lines<span class="mi-sw"></span></div>
         <div class="m-div"></div>
         <button class="mi" id="btnData">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>
@@ -460,7 +461,7 @@
 // Stamped by prototype/deploy.sh at deploy time (UTC date + private-repo
 // short SHA); stays "dev" when served straight from source. Shown in the
 // ⋯ menu and logged on boot so a stale cached PWA is obvious.
-const BUILD = "2026-09-10 18:01Z 00821a6";
+const BUILD = "2026-09-10 18:37Z 6b012f1";
 
 const canvas = document.getElementById("court");
 const ctx = canvas.getContext("2d");
@@ -515,6 +516,7 @@ const state = {
   courtMode: "half",
   ghostsEnabled: true,
   numbersEnabled: false, // session UI preference like ghostsEnabled, not part of snapshotDocument — a pure DISPLAY toggle (see drawToken); every token gets a number regardless, this only shows/hides it
+  declutterEnabled: false, // session UI preference like ghostsEnabled, not in snapshotDocument — render-only. On (for SHOWING a play, not building it): upcoming lines past a short time-horizon don't draw at all, and past lines fade fast and all the way out. See fadeAlpha / futureStrokeAlpha / beyondFutureHorizon.
   // One global fork point per play (no nesting, no per-token forks — see
   // project notes). token.segments/ball.transfers always hold the ACTIVE
   // branch's full timeline (shared prefix + that branch's own
@@ -1985,11 +1987,39 @@ function drawCourt() {
 const STROKE_FADE_MS = 2200;
 const STROKE_FADE_FLOOR = 0.18;
 
+// Declutter mode (state.declutterEnabled, a ⋯-menu session toggle) tightens
+// both ends of the timeline for showing a finished play rather than drawing
+// one: past lines fade over DECLUTTER_FADE_MS instead of STROKE_FADE_MS and
+// to nothing instead of the STROKE_FADE_FLOOR rest value; upcoming lines
+// more than DECLUTTER_FUTURE_HORIZON_MS ahead of the playhead don't draw at
+// all, and the ones still inside that window draw fainter the further off
+// they are. Numbers are tuned against the iPad, not load-bearing.
+const DECLUTTER_FADE_MS = 900;
+const DECLUTTER_FUTURE_HORIZON_MS = 1500;
+
 function fadeAlpha(t) {
   const age = state.currentTime - t;
   if (age <= 0) return 1; // hasn't happened yet, or just did
+  if (state.declutterEnabled) return clamp(1 - age / DECLUTTER_FADE_MS, 0, 1);
   const f = clamp(age / STROKE_FADE_MS, 0, 1);
   return 1 - f * (1 - STROKE_FADE_FLOOR);
+}
+
+// An upcoming (not-yet-reached) stroke starting at startT: true when
+// declutter mode should skip drawing it entirely because it's too far
+// ahead of the playhead. Off → never hidden (caller draws it flat, as before).
+function beyondFutureHorizon(startT) {
+  return state.declutterEnabled && startT - state.currentTime > DECLUTTER_FUTURE_HORIZON_MS;
+}
+
+// Opacity for an upcoming stroke that IS being drawn (inside the horizon,
+// or declutter off). Off: the flat 0.45 it's always used. On: ramps from
+// ~0.42 just ahead of the playhead down to ~0.14 at the horizon edge, so
+// the next beat reads clearly and the ones after it recede.
+function futureStrokeAlpha(startT) {
+  if (!state.declutterEnabled) return 0.45;
+  const f = clamp((startT - state.currentTime) / DECLUTTER_FUTURE_HORIZON_MS, 0, 1);
+  return 0.42 - f * (0.42 - 0.14);
 }
 
 function hexToRgb(hex) {
@@ -2284,9 +2314,9 @@ function renderTokenSegRun(token, miniSeg, { lineWidth, color, distanceOffset = 
 // DEV-ONLY: draws a "future" (not-yet-reached) stroke per the currently
 // selected comparison style. Deliberately skips dribble-wavify — it's a
 // preview of what will happen, not the final rendering.
-function drawFutureStroke(points) {
+function drawFutureStroke(points, alpha = 0.45) {
   ctx.save();
-  ctx.globalAlpha = 0.45;
+  ctx.globalAlpha = alpha;
   ctx.strokeStyle = getCssVar("--future");
   ctx.lineWidth = 3;
   ctx.lineJoin = "round"; ctx.lineCap = "round";
@@ -2307,7 +2337,7 @@ function drawTokenPath(token) {
     // to happen. seg.points itself is untouched (render-time only).
     const points = smoothedMovePoints(seg.points);
     if (phase === "future") {
-      drawFutureStroke(points);
+      if (!beyondFutureHorizon(seg.startT)) drawFutureStroke(points, futureStrokeAlpha(seg.startT));
       continue;
     }
     if (phase === "past") {
@@ -2367,8 +2397,9 @@ function drawBallTransfers() {
     const phase = strokePhase(tr.startT, tr.endT);
     const points = renderPointsForTransfer(tr);
     if (phase === "future") {
+      if (beyondFutureHorizon(tr.startT)) continue;
       ctx.save();
-      ctx.globalAlpha = 0.45;
+      ctx.globalAlpha = futureStrokeAlpha(tr.startT);
       ctx.strokeStyle = getCssVar("--future");
       ctx.lineWidth = 3;
       ctx.lineJoin = "round"; ctx.lineCap = "round";
@@ -2786,6 +2817,11 @@ document.getElementById("btnGhosts").addEventListener("click", () => {
 document.getElementById("btnNumbers").addEventListener("click", () => {
   state.numbersEnabled = !state.numbersEnabled;
   document.getElementById("btnNumbers").setAttribute("aria-checked", String(state.numbersEnabled));
+  render();
+});
+document.getElementById("btnDeclutter").addEventListener("click", () => {
+  state.declutterEnabled = !state.declutterEnabled;
+  document.getElementById("btnDeclutter").setAttribute("aria-checked", String(state.declutterEnabled));
   render();
 });
 
