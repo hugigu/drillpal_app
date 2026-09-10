@@ -169,6 +169,7 @@
   .mi .row-x:hover { background: var(--def-weak); color: var(--def); }
   .mi .row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .m-sec { font-size: 10px; font-weight: 600; letter-spacing: .13em; text-transform: uppercase; color: var(--ink-2); padding: 9px 10px 4px; }
+  .m-build { font-size: 10.5px; color: var(--ink-2); padding: 6px 10px 2px; font-variant-numeric: tabular-nums; user-select: text; -webkit-user-select: text; }
   .m-div { height: 1px; background: var(--line); margin: 5px 2px; }
   .m-hint { font-size: 11px; color: var(--ink-2); padding: 2px 10px 6px; }
   .m-empty { font-size: 12px; color: var(--ink-2); padding: 6px 10px; }
@@ -322,6 +323,8 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>
           Play data…
         </button>
+        <div class="m-div"></div>
+        <div class="m-build" id="buildStamp">build dev</div>
       </div>
     </div>
   </header>
@@ -369,6 +372,7 @@
       <div class="bar">
         <strong>Play data</strong>
         <button id="btnCopy" class="b b--quiet">Copy JSON</button>
+        <button id="btnCopyDebug" class="b b--quiet">Copy debug</button>
         <button id="btnCloseData" class="b b--primary">Done</button>
       </div>
       <pre id="dataOut"></pre>
@@ -452,6 +456,11 @@
    Out of scope on purpose: accounts, voiceover, video export,
    saved playbooks. See conversation notes / project memory.
    ============================================================ */
+
+// Stamped by prototype/deploy.sh at deploy time (UTC date + private-repo
+// short SHA); stays "dev" when served straight from source. Shown in the
+// ⋯ menu and logged on boot so a stale cached PWA is obvious.
+const BUILD = "2026-09-10 18:01Z 00821a6";
 
 const canvas = document.getElementById("court");
 const ctx = canvas.getContext("2d");
@@ -2758,6 +2767,14 @@ document.getElementById("btnCloseData").addEventListener("click", () => {
 document.getElementById("btnCopy").addEventListener("click", async () => {
   try { await navigator.clipboard.writeText(document.getElementById("dataOut").textContent); toast("copied", getCssVar("--accent")); } catch {}
 });
+// Non-lossy dump for sharing a bug: full stroke points (buildPlayDocument
+// decimates them), plus the build string and UA so there's no ambiguity
+// about what version produced it. Paste straight into a chat.
+document.getElementById("btnCopyDebug").addEventListener("click", async () => {
+  const blob = JSON.stringify({ build: BUILD, ua: navigator.userAgent, snapshot: snapshotDocument() }, null, 2);
+  try { await navigator.clipboard.writeText(blob); toast("debug copied", getCssVar("--accent")); }
+  catch { document.getElementById("dataOut").textContent = blob; toast("shown below — select + copy", getCssVar("--def")); }
+});
 
 // Ghosts / Player-numbers are switch rows in the overflow (⋯) menu now,
 // not toolbar toggle-buttons — flip state + reflect it in aria-checked,
@@ -3050,6 +3067,9 @@ document.addEventListener("click", () => closeAllMenus());
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeAllMenus(); });
 
 // ---------- boot ----------
+document.getElementById("buildStamp").textContent = "build " + BUILD;
+console.log("DrillPal build " + BUILD);
+
 // ResizeObserver (not a window "resize" listener) fires whenever the
 // canvas's own box actually changes size — window resizes, orientation
 // changes, and boot itself, whether that's the first paint or the canvas
