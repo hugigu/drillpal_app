@@ -564,7 +564,7 @@ const PHYSICAL = {
 };
 const CHROME = {
   STROKE_W_PX: 3,
-  STROKE_ACTIVE_W_PX: 4.5,
+  STROKE_ACTIVE_W_PX: 3.5,
   /** The dashed ring drawn around a token while arranging. Interface chrome —
    *  a selection indicator, not part of the play — so it stays px like the
    *  hit radii below. Added in slice 3 by the same rule that added
@@ -1471,6 +1471,14 @@ function drawCones(ctx2, layout, palette, resolved) {
   ctx2.restore();
 }
 const clamp$1 = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const ACTIVE_TAIL_EASE_MS = 500;
+const ACTIVE_TAIL_FLOOR = 0.5;
+function activeTailAlpha(strokeT, endTime) {
+  const remaining = endTime - strokeT;
+  if (remaining >= ACTIVE_TAIL_EASE_MS) return 1;
+  const f = clamp$1(remaining / ACTIVE_TAIL_EASE_MS, 0, 1);
+  return ACTIVE_TAIL_FLOOR + f * (1 - ACTIVE_TAIL_FLOOR);
+}
 function hexToRgb(hex) {
   let h = hex.trim().replace("#", "");
   if (h.length === 3) h = h.split("").map((c) => c + c).join("");
@@ -1510,7 +1518,7 @@ function splitByHolder(memo, token2, seg, balls, possessionSig) {
   });
   return runs;
 }
-function strokeFadedMoveRun(ctx2, layout, pts, startTime, endTime, currentTime, declutter, colorHex, lineWidth) {
+function strokeFadedMoveRun(ctx2, layout, pts, startTime, endTime, currentTime, declutter, colorHex, lineWidth, tailEase = false) {
   const n = pts.length;
   if (n < 2) return;
   ctx2.save();
@@ -1539,7 +1547,8 @@ function strokeFadedMoveRun(ctx2, layout, pts, startTime, endTime, currentTime, 
   const SLICES = Math.min(14, Math.max(3, Math.round(n / 8)));
   const strokeSub = (arr, sliceIdx2) => {
     if (arr.length < 2) return;
-    ctx2.globalAlpha = fadeAlpha(startTime + (sliceIdx2 + 0.5) / SLICES * span, currentTime, declutter);
+    const strokeT = startTime + (sliceIdx2 + 0.5) / SLICES * span;
+    ctx2.globalAlpha = fadeAlpha(strokeT, currentTime, declutter) * (tailEase ? activeTailAlpha(strokeT, endTime) : 1);
     ctx2.beginPath();
     const p0 = toScreen(layout, arr[0]);
     ctx2.moveTo(p0.x, p0.y);
@@ -1609,7 +1618,18 @@ function renderTokenSegRun(ctx2, layout, memo, token2, miniSeg, opts, currentTim
       distanceOffset + (run.distStart || 0),
       layout.horizontal
     ) : run.points;
-    strokeFadedMoveRun(ctx2, layout, pts, run.startTime, run.endTime, currentTime, declutter, color, lineWidth);
+    strokeFadedMoveRun(
+      ctx2,
+      layout,
+      pts,
+      run.startTime,
+      run.endTime,
+      currentTime,
+      declutter,
+      color,
+      lineWidth,
+      opts.tailEase
+    );
   }
   ctx2.restore();
 }
@@ -1664,7 +1684,7 @@ function drawTokenPath(ctx2, layout, palette, memo, token2, t, declutter, balls,
         memo,
         token2,
         { startT: t, endT: seg.endT, points: after },
-        { lineWidth: CHROME.STROKE_ACTIVE_W_PX, color, distanceOffset: afterOffset },
+        { lineWidth: CHROME.STROKE_ACTIVE_W_PX, color, distanceOffset: afterOffset, tailEase: true },
         t,
         declutter,
         balls,
@@ -1794,11 +1814,13 @@ function renderScene(ctx2, doc, t, opts) {
   const declutter = view2.declutterEnabled;
   drawCourt(ctx2, layout, palette);
   drawCones(ctx2, layout, palette, resolved);
-  for (const token2 of resolved.tokens) {
-    drawTokenPath(ctx2, layout, palette, memo, token2, t, declutter, resolved.balls, possessionSig);
+  if (!view2.linesHidden) {
+    for (const token2 of resolved.tokens) {
+      drawTokenPath(ctx2, layout, palette, memo, token2, t, declutter, resolved.balls, possessionSig);
+    }
+    drawBallTransfers(ctx2, layout, palette, resolved, t, declutter);
   }
-  drawBallTransfers(ctx2, layout, palette, resolved, t, declutter);
-  drawAnnotations(ctx2, layout, palette, resolved, t);
+  if (!view2.notesHidden) drawAnnotations(ctx2, layout, palette, resolved, t);
 }
 function renderEntities(ctx2, doc, t, opts) {
   const { layout, palette, view: view2 } = opts;
@@ -1877,7 +1899,7 @@ class Store {
     this.onChange?.();
   }
 }
-const BUILD = "2026-09-11 18:19Z c3230ee";
+const BUILD = "2026-09-11 19:59Z a507b48";
 const canvas = document.getElementById("court");
 const ctx = canvas.getContext("2d");
 const BALL_R = 8, CONE_R = 10;
@@ -1950,8 +1972,10 @@ const state = {
   ghostsEnabled: true,
   numbersEnabled: false,
   // pure DISPLAY toggle — every token is numbered regardless
-  declutterEnabled: false
+  declutterEnabled: false,
   // render-only: future lines past a short horizon don't draw, past lines fade fully out
+  notesHidden: false,
+  linesHidden: false
 };
 function totalDuration() {
   return durationFor(view());
@@ -2561,6 +2585,8 @@ function render() {
     view: {
       numbersEnabled: state.numbersEnabled,
       declutterEnabled: state.declutterEnabled,
+      notesHidden: state.notesHidden,
+      linesHidden: state.linesHidden,
       arranging: state.arranging,
       branchId: null
       // live state already holds the active branch's timeline
@@ -2816,6 +2842,21 @@ document.getElementById("btnDeclutter").addEventListener("click", () => {
   state.declutterEnabled = !state.declutterEnabled;
   document.getElementById("btnDeclutter").setAttribute("aria-checked", String(state.declutterEnabled));
   render();
+});
+document.getElementById("btnHideLines").addEventListener("click", () => {
+  state.linesHidden = !state.linesHidden;
+  document.getElementById("btnHideLines").setAttribute("aria-checked", String(state.linesHidden));
+  render();
+});
+document.getElementById("btnHideNotes").addEventListener("click", () => {
+  state.notesHidden = !state.notesHidden;
+  document.getElementById("btnHideNotes").setAttribute("aria-checked", String(state.notesHidden));
+  render();
+});
+document.getElementById("btnDeleteNotes").addEventListener("click", (e) => {
+  e.stopPropagation();
+  store.commit(clearNotes, { currentTime: state.currentTime });
+  state.currentTime = store.currentTime;
 });
 document.getElementById("btnSaveFormation").addEventListener("click", () => {
   const raw = prompt("Save formation as:");
