@@ -1877,7 +1877,7 @@ class Store {
     this.onChange?.();
   }
 }
-const BUILD = "2026-09-11 18:17Z c3230ee";
+const BUILD = "2026-09-11 18:19Z c3230ee";
 const canvas = document.getElementById("court");
 const ctx = canvas.getContext("2d");
 const BALL_R = 8, CONE_R = 10;
