@@ -3951,7 +3951,7 @@ async function exportPlayToMp4(doc, opts) {
   }
   return new Blob([muxer.target.buffer], { type: "video/mp4" });
 }
-const BUILD = "2026-09-12 00:34Z 3b5c1b4";
+const BUILD = "2026-09-12 00:41Z 8017a38";
 const canvas = document.getElementById("court");
 const ctx = canvas.getContext("2d");
 const BALL_R = 8, CONE_R = 10;
@@ -5208,64 +5208,6 @@ document.addEventListener("keydown", (e) => {
 });
 document.getElementById("buildStamp").textContent = "build " + BUILD + " · core " + CORE_VERSION;
 console.log("DrillPal build " + BUILD + " · core " + CORE_VERSION);
-{
-  window.__drillpal = {
-    state,
-    resize,
-    render,
-    snapshotDocument,
-    restoreSnapshot,
-    get court() {
-      return court;
-    },
-    get fullCourtHorizontal() {
-      return fullCourtHorizontal;
-    },
-    // Slice 2 characterization only: pin the court box to a fixture's
-    // capture-time box (recovered from its tokens or its layout stamp) and
-    // recompute the token homes from fx/fy, so tokenPosAt/ballPosAt see the
-    // SAME box the stroke pixels were drawn in — otherwise the capture would
-    // just be measuring live bug #1 (layout-change ink desync). Does NOT call
-    // resize(), which would recompute the box from the live canvas.
-    setLayout(box2, horizontal) {
-      court = { x: box2.x, y: box2.y, w: box2.w, h: box2.h };
-      fullCourtHorizontal = !!horizontal;
-    },
-    // Slice 3 parity harness: the canvas + context it captures pixels from,
-    // the palette lookup the core takes as an explicit Palette, and branch
-    // switching (the ViewOptions axis with no prototype equivalent until now).
-    canvas,
-    ctx,
-    getCssVar,
-    refreshPalette,
-    switchBranch,
-    // The long list of geometry/timeline/hit-test functions that used to be
-    // re-exported here was this file's own pixel-native duplicates of the
-    // core. Slice 4.5b-1 deleted them; anything that needs them should import
-    // from src/core directly, which is what the characterization suite does.
-    courtScale,
-    courtAspect,
-    hitToken,
-    hitTokenForRepeatTap,
-    hitBall,
-    hitCone,
-    hitAnyStroke,
-    tokenById,
-    currentLayout,
-    get doc() {
-      return store.doc;
-    },
-    store,
-    // Slice 3 parity gate: the extracted core's own render path, so the
-    // harness can render Side B (renderFrame) next to Side A — which since
-    // 4.5a is the FROZEN build in src/parity/frozen-oracle/, not this file.
-    core: { deserialize, legacyBoxToLayout, resolveBranch, renderFrame, createMemoScope },
-    // Slice 5a: the export path, reachable before it has any UI, so
-    // src/parity/export.spec.ts can produce a REAL mp4 from the REAL built
-    // bundle rather than from a harness that imports the core its own way.
-    exportVideo: { exportPlayToMp4, hasVideoExport, exportLayout, currentPalette }
-  };
-}
 new ResizeObserver(resize).observe(canvas);
 resize();
 document.getElementById("btnBlank").click();

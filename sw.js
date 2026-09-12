@@ -1,7 +1,7 @@
 /* DrillPal service worker — offline shell cache.
    Bump CACHE when any precached file changes; the new worker drops the old
    cache on activate and the update is live on the next launch. */
-const CACHE = "drillpal-202609120034-3b5c1b4"; // deploy.sh stamps a unique value per deploy
+const CACHE = "drillpal-202609120041-8017a38"; // deploy.sh stamps a unique value per deploy
 
 // Regenerated at build time by scripts/gen-precache.mjs, from the actual
 // files `vite build` produced (dist/.vite/manifest.json) — slice 3.5,
@@ -11,7 +11,7 @@ const CACHE = "drillpal-202609120034-3b5c1b4"; // deploy.sh stamps a unique valu
 const SHELL = [
   /* SHELL:START */
   "./apple-touch-icon.png",
-  "./assets/index-y_LkDZkA.js",
+  "./assets/index--XmEFeEL.js",
   "./icon-192.png",
   "./icon-512.png",
   "./index.html",
