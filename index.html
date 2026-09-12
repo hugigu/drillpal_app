@@ -260,6 +260,11 @@
   .vb:active { transform: translateY(1px); }
   .vb[aria-pressed="true"] { color: var(--accent); background: var(--accent-weak); }
   .vb--danger:hover { background: var(--red-weak); color: var(--red); }
+  /* The lines segmented control, sized to sit in the lane rather than the
+     Arrange band — icon-only, so it costs about one labelled pill of width. */
+  .vb-seg { padding: 2px; gap: 1px; }
+  .vb-seg button { padding: 4px 8px; min-height: 28px; display: inline-flex; align-items: center; }
+  .vb-seg svg { width: 16px; height: 16px; display: block; }
   .vb-div { width: 1px; align-self: stretch; min-height: 20px; background: var(--line); margin: 0 3px; }
   /* Narrow screens drop to icon-only rather than wrapping -- see above. */
   @media (max-width: 640px) { .vb .vb-label { display: none; } .vb { padding: 5px 8px; } }
@@ -346,7 +351,7 @@
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 </style>
-  <script type="module" crossorigin src="./assets/index-D65D3MbH.js"></script>
+  <script type="module" crossorigin src="./assets/index-DP_pg9uu.js"></script>
 </head>
 <body>
 <div id="app">
@@ -551,10 +556,20 @@
          store.freeze() is on -- visibly, because a frozen commit returns
          silently (store.ts) and a dead-looking button beats a dead one. -->
     <div class="viewbar" id="viewBar">
-      <button class="vb" id="vbLines" aria-pressed="true" aria-label="Show lines">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17c4 0 5-10 9-10s5 6 9 6"/></svg>
-        <span class="vb-label">Lines</span>
-      </button>
+      <!-- The ROLE axis: which lines draw. A segmented control rather than a
+           cycling pill so every state is one tap from any other and all three
+           are visible — this gets used mid-sentence, without looking. -->
+      <div class="segmented vb-seg" role="group" aria-label="Lines">
+        <button id="vbLines-all" aria-pressed="true" title="All lines" aria-label="All lines">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17c4 0 5-10 9-10s5 6 9 6"/></svg>
+        </button>
+        <button id="vbLines-ball" aria-pressed="false" title="Ball path only" aria-label="Ball path only">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18c4-9 11-12 18-13"/><circle cx="18.5" cy="5.5" r="2.6"/></svg>
+        </button>
+        <button id="vbLines-none" aria-pressed="false" title="No lines" aria-label="No lines">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17c4 0 5-10 9-10s5 6 9 6"/><path d="M4 20 20 4"/></svg>
+        </button>
+      </div>
       <button class="vb" id="vbNotes" aria-pressed="true" aria-label="Show notes">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"/></svg>
         <span class="vb-label">Notes</span>
@@ -563,9 +578,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4 8 20M16 4l-2 16M4.5 9h15M3.5 15h15"/></svg>
         <span class="vb-label">Numbers</span>
       </button>
-      <button class="vb" id="vbDeclutter" aria-pressed="false" aria-label="Declutter lines">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>
-        <span class="vb-label">Declutter</span>
+      <!-- The TIME axis. Inert while Lines is None, and greyed out there. -->
+      <button class="vb" id="vbFocus" aria-pressed="false" aria-label="Focus on the current moment">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="8.5"/><path d="M12 1.5v2M12 20.5v2M1.5 12h2M20.5 12h2"/></svg>
+        <span class="vb-label">Focus</span>
       </button>
       <div class="vb-div"></div>
       <div class="menu-host">

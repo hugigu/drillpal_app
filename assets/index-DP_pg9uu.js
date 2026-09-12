@@ -662,6 +662,18 @@ function holderAt(ball2, t) {
   }
   return holder;
 }
+function heldBallDuring(ball2, tokenId, startT, endT) {
+  if (holderAt(ball2, startT) === tokenId) return true;
+  for (const tr of ball2.transfers) {
+    for (const bp of [tr.startT, tr.endT]) {
+      if (bp > startT && bp < endT && holderAt(ball2, bp) === tokenId) return true;
+    }
+  }
+  return false;
+}
+function heldAnyBallDuring(balls, tokenId, startT, endT) {
+  return balls.some((b) => heldBallDuring(b, tokenId, startT, endT));
+}
 function ballsHeldBy(balls, tokenId, t, exclude) {
   let n = 0;
   for (const b of balls) {
@@ -818,21 +830,21 @@ function computeWavify(points2, amplitude = PHYSICAL.WAVIFY_AMPLITUDE_M, wavelen
 }
 const STROKE_FADE_MS = 2200;
 const STROKE_FADE_FLOOR = 0.18;
-const DECLUTTER_FADE_MS = 900;
-const DECLUTTER_FUTURE_HORIZON_MS = 1500;
-function fadeAlpha(strokeT, currentTime, declutter) {
+const FOCUS_FADE_MS = 900;
+const FOCUS_FUTURE_HORIZON_MS = 1500;
+function fadeAlpha(strokeT, currentTime, focus) {
   const age = currentTime - strokeT;
   if (age <= 0) return 1;
-  if (declutter) return clamp$5(1 - age / DECLUTTER_FADE_MS, 0, 1);
+  if (focus) return clamp$5(1 - age / FOCUS_FADE_MS, 0, 1);
   const f = clamp$5(age / STROKE_FADE_MS, 0, 1);
   return 1 - f * (1 - STROKE_FADE_FLOOR);
 }
-function beyondFutureHorizon(startT, currentTime, declutter) {
-  return declutter && startT - currentTime > DECLUTTER_FUTURE_HORIZON_MS;
+function beyondFutureHorizon(startT, currentTime, focus) {
+  return focus && startT - currentTime > FOCUS_FUTURE_HORIZON_MS;
 }
-function futureStrokeAlpha(startT, currentTime, declutter) {
-  if (!declutter) return 0.45;
-  const f = clamp$5((startT - currentTime) / DECLUTTER_FUTURE_HORIZON_MS, 0, 1);
+function futureStrokeAlpha(startT, currentTime, focus) {
+  if (!focus) return 0.45;
+  const f = clamp$5((startT - currentTime) / FOCUS_FUTURE_HORIZON_MS, 0, 1);
   return 0.42 - f * (0.42 - 0.14);
 }
 function strokePhase(startT, endT, currentTime) {
@@ -1543,7 +1555,7 @@ function splitByHolder(memo, token2, seg, balls, possessionSig) {
   });
   return runs;
 }
-function strokeFadedMoveRun(ctx2, layout, pts, startTime, endTime, currentTime, declutter, colorHex, lineWidth, tailEase = false) {
+function strokeFadedMoveRun(ctx2, layout, pts, startTime, endTime, currentTime, focus, colorHex, lineWidth, tailEase = false) {
   const n = pts.length;
   if (n < 2) return;
   ctx2.save();
@@ -1553,7 +1565,7 @@ function strokeFadedMoveRun(ctx2, layout, pts, startTime, endTime, currentTime, 
   ctx2.lineCap = "round";
   const span = endTime - startTime;
   if (n === 2 || span <= 0) {
-    ctx2.globalAlpha = fadeAlpha(endTime, currentTime, declutter);
+    ctx2.globalAlpha = fadeAlpha(endTime, currentTime, focus);
     const a = toScreen(layout, pts[0]), b = toScreen(layout, pts[n - 1]);
     ctx2.beginPath();
     ctx2.moveTo(a.x, a.y);
@@ -1573,7 +1585,7 @@ function strokeFadedMoveRun(ctx2, layout, pts, startTime, endTime, currentTime, 
   const strokeSub = (arr, sliceIdx2) => {
     if (arr.length < 2) return;
     const strokeT = startTime + (sliceIdx2 + 0.5) / SLICES * span;
-    ctx2.globalAlpha = fadeAlpha(strokeT, currentTime, declutter) * (tailEase ? activeTailAlpha(strokeT, endTime) : 1);
+    ctx2.globalAlpha = fadeAlpha(strokeT, currentTime, focus) * (tailEase ? activeTailAlpha(strokeT, endTime) : 1);
     ctx2.beginPath();
     const p0 = toScreen(layout, arr[0]);
     ctx2.moveTo(p0.x, p0.y);
@@ -1596,18 +1608,18 @@ function strokeFadedMoveRun(ctx2, layout, pts, startTime, endTime, currentTime, 
   strokeSub(sub, sliceIdx);
   ctx2.restore();
 }
-function fadeGradientStroke(ctx2, layout, points2, startTime, endTime, currentTime, declutter, colorHex) {
+function fadeGradientStroke(ctx2, layout, points2, startTime, endTime, currentTime, focus, colorHex) {
   const { r, g, b } = hexToRgb(colorHex);
   const a = toScreen(layout, points2[0]), z = toScreen(layout, points2[points2.length - 1]);
   if (points2.length < 2 || a.x === z.x && a.y === z.y) {
-    return `rgba(${r},${g},${b},${fadeAlpha(endTime, currentTime, declutter)})`;
+    return `rgba(${r},${g},${b},${fadeAlpha(endTime, currentTime, focus)})`;
   }
   const grad = ctx2.createLinearGradient(a.x, a.y, z.x, z.y);
   const STOPS = 6;
   for (let i = 0; i <= STOPS; i++) {
     const frac = i / STOPS;
     const t = startTime + frac * (endTime - startTime);
-    grad.addColorStop(frac, `rgba(${r},${g},${b},${fadeAlpha(t, currentTime, declutter)})`);
+    grad.addColorStop(frac, `rgba(${r},${g},${b},${fadeAlpha(t, currentTime, focus)})`);
   }
   return grad;
 }
@@ -1626,7 +1638,7 @@ function drawFutureStroke(ctx2, layout, palette, points2, alpha) {
   ctx2.stroke();
   ctx2.restore();
 }
-function renderTokenSegRun(ctx2, layout, memo, token2, miniSeg, opts, currentTime, declutter, balls, possessionSig) {
+function renderTokenSegRun(ctx2, layout, memo, token2, miniSeg, opts, currentTime, focus, balls, possessionSig) {
   const lineWidth = opts.lineWidth, color = opts.color, distanceOffset = opts.distanceOffset ?? 0;
   const runs = splitByHolder(memo, token2, miniSeg, balls, possessionSig);
   ctx2.save();
@@ -1650,7 +1662,7 @@ function renderTokenSegRun(ctx2, layout, memo, token2, miniSeg, opts, currentTim
       run.startTime,
       run.endTime,
       currentTime,
-      declutter,
+      focus,
       color,
       lineWidth,
       opts.tailEase
@@ -1658,14 +1670,15 @@ function renderTokenSegRun(ctx2, layout, memo, token2, miniSeg, opts, currentTim
   }
   ctx2.restore();
 }
-function drawTokenPath(ctx2, layout, palette, memo, token2, t, declutter, balls, possessionSig) {
+function drawTokenPath(ctx2, layout, palette, memo, token2, t, focus, balls, possessionSig, ballOnly = false) {
   for (const seg of token2.segments) {
+    if (ballOnly && !heldAnyBallDuring(balls, token2.id, seg.startT, seg.endT)) continue;
     const color = palette.accent;
     const phase = strokePhase(seg.startT, seg.endT, t);
     const points2 = smoothedMovePoints(memo, seg.points);
     if (phase === "future") {
-      if (!beyondFutureHorizon(seg.startT, t, declutter)) {
-        drawFutureStroke(ctx2, layout, palette, points2, futureStrokeAlpha(seg.startT, t, declutter));
+      if (!beyondFutureHorizon(seg.startT, t, focus)) {
+        drawFutureStroke(ctx2, layout, palette, points2, futureStrokeAlpha(seg.startT, t, focus));
       }
       continue;
     }
@@ -1678,7 +1691,7 @@ function drawTokenPath(ctx2, layout, palette, memo, token2, t, declutter, balls,
         { startT: seg.startT, endT: seg.endT, points: points2 },
         { lineWidth: CHROME.STROKE_W_PX, color },
         t,
-        declutter,
+        focus,
         balls,
         possessionSig
       );
@@ -1697,7 +1710,7 @@ function drawTokenPath(ctx2, layout, palette, memo, token2, t, declutter, balls,
         { startT: seg.startT, endT: t, points: before },
         { lineWidth: CHROME.STROKE_W_PX, color },
         t,
-        declutter,
+        focus,
         balls,
         possessionSig
       );
@@ -1711,7 +1724,7 @@ function drawTokenPath(ctx2, layout, palette, memo, token2, t, declutter, balls,
         { startT: t, endT: seg.endT, points: after },
         { lineWidth: CHROME.STROKE_ACTIVE_W_PX, color, distanceOffset: afterOffset, tailEase: true },
         t,
-        declutter,
+        focus,
         balls,
         possessionSig
       );
@@ -1740,7 +1753,7 @@ function drawShotMark(ctx2, layout, pt, color) {
   ctx2.arc(sp.x, sp.y, 6, 0, Math.PI * 2);
   ctx2.stroke();
 }
-function renderTransferRun(ctx2, layout, miniSeg, opts, t, declutter) {
+function renderTransferRun(ctx2, layout, miniSeg, opts, t, focus) {
   const pts = miniSeg.points;
   ctx2.save();
   ctx2.globalAlpha = 1;
@@ -1748,7 +1761,7 @@ function renderTransferRun(ctx2, layout, miniSeg, opts, t, declutter) {
   ctx2.lineJoin = "round";
   ctx2.lineCap = "round";
   ctx2.setLineDash([2, 9]);
-  ctx2.strokeStyle = fadeGradientStroke(ctx2, layout, pts, miniSeg.startT, miniSeg.endT, t, declutter, opts.color);
+  ctx2.strokeStyle = fadeGradientStroke(ctx2, layout, pts, miniSeg.startT, miniSeg.endT, t, focus, opts.color);
   ctx2.beginPath();
   pts.forEach((p, i) => {
     const sp = toScreen(layout, p);
@@ -1759,13 +1772,13 @@ function renderTransferRun(ctx2, layout, miniSeg, opts, t, declutter) {
   if (opts.terminal) {
     const a = pts[pts.length - 2] ?? pts[0];
     const b = pts[pts.length - 1];
-    ctx2.globalAlpha = fadeAlpha(miniSeg.endT, t, declutter);
+    ctx2.globalAlpha = fadeAlpha(miniSeg.endT, t, focus);
     if (opts.isShot) drawShotMark(ctx2, layout, b, opts.color);
     else drawArrow(ctx2, layout, a, b, opts.color);
   }
   ctx2.restore();
 }
-function drawBallTransfers(ctx2, layout, palette, resolved, t, declutter) {
+function drawBallTransfers(ctx2, layout, palette, resolved, t, focus) {
   for (const ball2 of resolved.balls) {
     for (const tr of ball2.transfers) {
       const isShot = tr.toId == null;
@@ -1773,9 +1786,9 @@ function drawBallTransfers(ctx2, layout, palette, resolved, t, declutter) {
       const phase = strokePhase(tr.startT, tr.endT, t);
       const points2 = renderPointsForTransfer(tr, resolved, layout.scale);
       if (phase === "future") {
-        if (beyondFutureHorizon(tr.startT, t, declutter)) continue;
+        if (beyondFutureHorizon(tr.startT, t, focus)) continue;
         ctx2.save();
-        ctx2.globalAlpha = futureStrokeAlpha(tr.startT, t, declutter);
+        ctx2.globalAlpha = futureStrokeAlpha(tr.startT, t, focus);
         ctx2.strokeStyle = palette.future;
         ctx2.lineWidth = CHROME.STROKE_W_PX;
         ctx2.lineJoin = "round";
@@ -1798,7 +1811,7 @@ function drawBallTransfers(ctx2, layout, palette, resolved, t, declutter) {
           { startT: tr.startT, endT: tr.endT, points: points2 },
           { lineWidth: CHROME.STROKE_W_PX, color, terminal: true, isShot },
           t,
-          declutter
+          focus
         );
         continue;
       }
@@ -1812,7 +1825,7 @@ function drawBallTransfers(ctx2, layout, palette, resolved, t, declutter) {
           { startT: tr.startT, endT: t, points: before },
           { lineWidth: CHROME.STROKE_W_PX, color, terminal: !aheadHasLine, isShot },
           t,
-          declutter
+          focus
         );
       }
       if (aheadHasLine) {
@@ -1822,7 +1835,7 @@ function drawBallTransfers(ctx2, layout, palette, resolved, t, declutter) {
           { startT: t, endT: tr.endT, points: after },
           { lineWidth: CHROME.STROKE_ACTIVE_W_PX, color, terminal: true, isShot },
           t,
-          declutter
+          focus
         );
       }
     }
@@ -1836,14 +1849,26 @@ function renderScene(ctx2, doc, t, opts) {
   const { layout, palette, view: view2, memo } = opts;
   const resolved = resolveBranch(doc, view2.branchId ?? void 0);
   const possessionSig = possessionSignature(resolved.balls);
-  const declutter = view2.declutterEnabled;
+  const focus = view2.focusEnabled;
+  const ballOnly = view2.lines === "ball";
   drawCourt(ctx2, layout, palette);
   drawCones(ctx2, layout, palette, resolved);
-  if (!view2.linesHidden) {
+  if (view2.lines !== "none") {
     for (const token2 of resolved.tokens) {
-      drawTokenPath(ctx2, layout, palette, memo, token2, t, declutter, resolved.balls, possessionSig);
+      drawTokenPath(
+        ctx2,
+        layout,
+        palette,
+        memo,
+        token2,
+        t,
+        focus,
+        resolved.balls,
+        possessionSig,
+        ballOnly
+      );
     }
-    drawBallTransfers(ctx2, layout, palette, resolved, t, declutter);
+    drawBallTransfers(ctx2, layout, palette, resolved, t, focus);
   }
   if (!view2.notesHidden) drawAnnotations(ctx2, layout, palette, resolved, t);
 }
@@ -14664,7 +14689,7 @@ class Recorder {
     return traj;
   }
 }
-const BUILD = "2026-09-12 19:07Z bb83a47";
+const BUILD = "2026-09-12 23:26Z 33e136f";
 const canvas = document.getElementById("court");
 const ctx = canvas.getContext("2d");
 const BALL_R = 8, CONE_R = 10;
@@ -14737,10 +14762,11 @@ const state = {
   ghostsEnabled: true,
   numbersEnabled: false,
   // pure DISPLAY toggle — every token is numbered regardless
-  declutterEnabled: false,
-  // render-only: future lines past a short horizon don't draw, past lines fade fully out
+  focusEnabled: false,
+  // the TIME axis: future lines past a short horizon don't draw, past lines fade fully out
+  lines: "all",
+  // the ROLE axis — annotated so it does not widen to string
   notesHidden: false,
-  linesHidden: false,
   // A live take is running (slice 5b): the pen is genuinely inert (canvas
   // pointerdown returns immediately) and store.freeze(true) blocks every
   // document edit at its single choke point. Scrub/play/pause and the view
@@ -15353,9 +15379,9 @@ function render() {
   const doc = store.doc;
   const viewOpts = {
     numbersEnabled: state.numbersEnabled,
-    declutterEnabled: state.declutterEnabled,
+    focusEnabled: state.focusEnabled,
     notesHidden: state.notesHidden,
-    linesHidden: state.linesHidden,
+    lines: state.lines,
     arranging: state.arranging,
     branchId: null
     // live state already holds the active branch's timeline
@@ -15630,9 +15656,9 @@ function showRecordOverlay(view2) {
 function currentViewOptions() {
   return {
     numbersEnabled: state.numbersEnabled,
-    declutterEnabled: state.declutterEnabled,
+    focusEnabled: state.focusEnabled,
     notesHidden: state.notesHidden,
-    linesHidden: state.linesHidden,
+    lines: state.lines,
     arranging: false,
     // never leaks into a clip — Recorder forces it too, this is belt & suspenders
     branchId: null
@@ -15764,26 +15790,35 @@ document.getElementById("btnRecordKeep").addEventListener("click", () => {
 document.getElementById("btnRecordVideo").addEventListener("click", armRecording);
 if (!hasVideoExport()) document.getElementById("btnRecordVideo").remove();
 const VIEW_TOGGLES = [
-  ["vbLines", () => !state.linesHidden, (on) => {
-    state.linesHidden = !on;
-  }],
   ["vbNotes", () => !state.notesHidden, (on) => {
     state.notesHidden = !on;
   }],
   ["vbNumbers", () => state.numbersEnabled, (on) => {
     state.numbersEnabled = on;
   }],
-  ["vbDeclutter", () => state.declutterEnabled, (on) => {
-    state.declutterEnabled = on;
+  ["vbFocus", () => state.focusEnabled, (on) => {
+    state.focusEnabled = on;
   }]
 ];
+const LINES_STATES = ["all", "ball", "none"];
 function syncViewBar() {
   for (const [id, get] of VIEW_TOGGLES) {
     document.getElementById(id).setAttribute("aria-pressed", String(get()));
   }
+  for (const v of LINES_STATES) {
+    document.getElementById("vbLines-" + v).setAttribute("aria-pressed", String(state.lines === v));
+  }
+  document.getElementById("vbFocus").disabled = state.lines === "none";
   for (const id of ["btnClearBoard", "btnClearNotes"]) {
     document.getElementById(id).disabled = state.recording;
   }
+}
+for (const v of LINES_STATES) {
+  document.getElementById("vbLines-" + v).addEventListener("click", () => {
+    state.lines = v;
+    syncViewBar();
+    render();
+  });
 }
 for (const [id, get, set] of VIEW_TOGGLES) {
   document.getElementById(id).addEventListener("click", () => {
