@@ -14545,16 +14545,28 @@ async function requestMic() {
     return null;
   }
 }
+const MAKEUP_GAIN_DB = 12;
+const dbToLinear = (db) => 10 ** (db / 20);
 class MicCapture {
   ctx = null;
   node = null;
   source = null;
+  compressor = null;
+  makeupGain = null;
   chunks = [];
   startWallT;
   async start(stream) {
     const ctx2 = new AudioContext({ sampleRate: AUDIO_SAMPLE_RATE, latencyHint: "interactive" });
     await ctx2.audioWorklet.addModule(WORKLET_URL);
     const source = ctx2.createMediaStreamSource(stream);
+    const compressor = new DynamicsCompressorNode(ctx2, {
+      threshold: -50,
+      knee: 12,
+      ratio: 6,
+      attack: 3e-3,
+      release: 0.25
+    });
+    const makeupGain = new GainNode(ctx2, { gain: dbToLinear(MAKEUP_GAIN_DB) });
     const node = new AudioWorkletNode(ctx2, WORKLET_NAME, {
       numberOfInputs: 1,
       numberOfOutputs: 0,
@@ -14562,10 +14574,14 @@ class MicCapture {
       channelCountMode: "explicit"
     });
     node.port.onmessage = (e) => this.onChunk(e.data);
-    source.connect(node);
+    source.connect(compressor);
+    compressor.connect(makeupGain);
+    makeupGain.connect(node);
     this.ctx = ctx2;
     this.node = node;
     this.source = source;
+    this.compressor = compressor;
+    this.makeupGain = makeupGain;
     this.chunks = [];
     this.startWallT = void 0;
   }
@@ -14598,6 +14614,8 @@ class MicCapture {
       new Promise((resolve) => setTimeout(resolve, 300))
     ]);
     source?.disconnect();
+    this.compressor?.disconnect();
+    this.makeupGain?.disconnect();
     node.disconnect();
     void ctx2.close();
     const total = this.chunks.reduce((n, c) => n + c.length, 0);
@@ -14611,6 +14629,8 @@ class MicCapture {
     this.ctx = null;
     this.node = null;
     this.source = null;
+    this.compressor = null;
+    this.makeupGain = null;
     this.chunks = [];
     return { sampleRate: AUDIO_SAMPLE_RATE, pcm, startWallT: startWallT ?? performance.now() };
   }
@@ -14644,7 +14664,7 @@ class Recorder {
     return traj;
   }
 }
-const BUILD = "2026-09-12 17:01Z 4e1eebf";
+const BUILD = "2026-09-12 17:12Z f6c697f";
 const canvas = document.getElementById("court");
 const ctx = canvas.getContext("2d");
 const BALL_R = 8, CONE_R = 10;

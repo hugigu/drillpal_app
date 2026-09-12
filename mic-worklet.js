@@ -40,7 +40,15 @@ class MicCaptureProcessor extends AudioWorkletProcessor {
     while (i < channel.length) {
       const room = CHUNK_FRAMES - this._filled;
       const take = Math.min(room, channel.length - i);
-      this._buf.set(channel.subarray(i, i + take), this._filled);
+      // Clamped by hand, not a bulk .set(): the makeup gain upstream
+      // (src/app/mic.ts) can push a transient slightly past +/-1 even
+      // through the compressor, and an out-of-range f32 sample is exactly
+      // the kind of thing that turns into harsh digital noise once it
+      // reaches the AAC encoder.
+      for (let n = 0; n < take; n++) {
+        const s = channel[i + n];
+        this._buf[this._filled + n] = s < -1 ? -1 : s > 1 ? 1 : s;
+      }
       this._filled += take;
       i += take;
       if (this._filled === CHUNK_FRAMES) this._flush();
