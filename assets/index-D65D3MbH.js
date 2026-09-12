@@ -14664,7 +14664,7 @@ class Recorder {
     return traj;
   }
 }
-const BUILD = "2026-09-12 18:44Z 071b366";
+const BUILD = "2026-09-12 19:07Z bb83a47";
 const canvas = document.getElementById("court");
 const ctx = canvas.getContext("2d");
 const BALL_R = 8, CONE_R = 10;
@@ -15781,7 +15781,9 @@ function syncViewBar() {
   for (const [id, get] of VIEW_TOGGLES) {
     document.getElementById(id).setAttribute("aria-pressed", String(get()));
   }
-  document.getElementById("vbClearNotes").disabled = state.recording;
+  for (const id of ["btnClearBoard", "btnClearNotes"]) {
+    document.getElementById(id).disabled = state.recording;
+  }
 }
 for (const [id, get, set] of VIEW_TOGGLES) {
   document.getElementById(id).addEventListener("click", () => {
@@ -15790,10 +15792,6 @@ for (const [id, get, set] of VIEW_TOGGLES) {
     render();
   });
 }
-document.getElementById("vbClearNotes").addEventListener("click", () => {
-  store.commit(clearNotes, { currentTime: state.currentTime });
-  state.currentTime = store.currentTime;
-});
 document.getElementById("btnGhosts").addEventListener("click", () => {
   state.ghostsEnabled = !state.ghostsEnabled;
   document.getElementById("btnGhosts").setAttribute("aria-checked", String(state.ghostsEnabled));
@@ -15921,17 +15919,18 @@ function setCourtMode(mode) {
 }
 document.getElementById("btnCourtHalf").addEventListener("click", () => setCourtMode("half"));
 document.getElementById("btnCourtFull").addEventListener("click", () => setCourtMode("full"));
-document.getElementById("btnClear").addEventListener("click", () => {
-  store.commit(clearStrokes, { currentTime: state.currentTime });
-  state.currentTime = store.currentTime;
+document.getElementById("btnClearBoard").addEventListener("click", () => {
+  const doc = store.doc;
+  if (!hasDrawnContent() && !doc.fork) return;
+  const msg = doc.fork ? "Clear the board? All lines and notes go, and every branch is discarded. Players, positions and cones stay." : "Clear the board? All lines and notes go. Players, positions and cones stay.";
+  if (!confirm(msg)) return;
+  store.commit(clearAll, { currentTime: state.currentTime });
+  state.currentTime = 0;
+  refreshForkUI();
 });
 document.getElementById("btnClearNotes").addEventListener("click", () => {
   store.commit(clearNotes, { currentTime: state.currentTime });
   state.currentTime = store.currentTime;
-});
-document.getElementById("btnClearAll").addEventListener("click", () => {
-  store.commit(clearAll, { currentTime: state.currentTime });
-  state.currentTime = 0;
 });
 document.getElementById("btnUndo").addEventListener("click", undo);
 document.getElementById("btnRedo").addEventListener("click", redo);
@@ -15995,7 +15994,6 @@ function wireSource(elId, kind) {
 wireSource("srcBall", "ball");
 wireSource("srcCone", "cone");
 const MENUS = [
-  ["btnClearMenu", "menuClear"],
   ["btnLibrary", "menuLibrary"],
   ["btnMore", "menuMore"],
   ["btnViewMore", "menuView"],
