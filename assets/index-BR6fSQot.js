@@ -562,6 +562,12 @@ const PHYSICAL = {
   TOKEN_R_M: 14 / REFERENCE_PX_PER_M,
   BALL_R_M: 8 / REFERENCE_PX_PER_M,
   CONE_R_M: 10 / REFERENCE_PX_PER_M,
+  /** The number drawn on a token. Content on the floor, not interface chrome
+   *  — same reasoning as TOKEN_R_M — so it must scale with the court like
+   *  everything else drawn on it. Missed in the original slice-1.5 sort
+   *  (found 2026-09-12: correct-looking on the live app's own canvas scale,
+   *  proportionally tiny on the export's much higher px-per-meter scale). */
+  TOKEN_LABEL_FONT_M: 12 / REFERENCE_PX_PER_M,
   /** Dribble squiggle. Amplitude and wavelength are distances along the floor. */
   WAVIFY_AMPLITUDE_M: 6 / REFERENCE_PX_PER_M,
   WAVIFY_WAVELENGTH_M: 26 / REFERENCE_PX_PER_M,
@@ -1439,7 +1445,7 @@ function drawToken(ctx2, layout, palette, token2, t, view2) {
   ctx2.fill();
   if (view2.numbersEnabled) {
     ctx2.fillStyle = "#fff";
-    ctx2.font = "700 12px -apple-system, sans-serif";
+    ctx2.font = `700 ${px(PHYSICAL.TOKEN_LABEL_FONT_M, layout.scale)}px -apple-system, sans-serif`;
     ctx2.textAlign = "center";
     ctx2.textBaseline = "middle";
     ctx2.fillText(token2.label, sp.x, sp.y + 1);
@@ -14638,7 +14644,7 @@ class Recorder {
     return traj;
   }
 }
-const BUILD = "2026-09-12 15:37Z 8a035bf";
+const BUILD = "2026-09-12 16:56Z fb4c184";
 const canvas = document.getElementById("court");
 const ctx = canvas.getContext("2d");
 const BALL_R = 8, CONE_R = 10;
