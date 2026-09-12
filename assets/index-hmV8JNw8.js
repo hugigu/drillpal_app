@@ -14664,7 +14664,7 @@ class Recorder {
     return traj;
   }
 }
-const BUILD = "2026-09-12 17:12Z f6c697f";
+const BUILD = "2026-09-12 17:25Z 93ed60b";
 const canvas = document.getElementById("court");
 const ctx = canvas.getContext("2d");
 const BALL_R = 8, CONE_R = 10;
@@ -15745,6 +15745,10 @@ function closeRecordPreview() {
   recordTrajectory = null;
   recordNarration = null;
 }
+document.getElementById("btnRecordDiscard").addEventListener("click", () => {
+  closeRecordPreview();
+  showRecordOverlay(null);
+});
 document.getElementById("btnRecordRetake").addEventListener("click", async () => {
   closeRecordPreview();
   await armRecording();
