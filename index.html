@@ -33,9 +33,9 @@
     --pass:    #1B7248;
     --shot:    #A97428;
     --note:    #D18A1F;
-    --off:     #1D5FBF;
-    --def:     #BE3729;
-    --def-weak: rgba(190,55,41,.12);
+    --blue:    #1D5FBF;
+    --red:     #BE3729;
+    --red-weak: rgba(190,55,41,.12);
     --ball:    #D18A1F;
     --future:  #8A8FA3;
     --cone:    #7A4FB0;
@@ -47,7 +47,7 @@
       --border-strong: #44535F;
       --panel: #151E27; --panel-2: #1E2A35; --court: #16202A; --court-line: #33424D;
       --accent: #74AAF2; --accent-weak: rgba(116,170,242,.18); --pass: #58C08C; --shot: #D6A75C;
-      --note: #E3A64B; --off: #7FB2F5; --def: #EE8375; --def-weak: rgba(238,131,117,.18); --ball: #E3A64B;
+      --note: #E3A64B; --blue: #7FB2F5; --red: #EE8375; --red-weak: rgba(238,131,117,.18); --ball: #E3A64B;
       --cone: #B99EE8;
       --future: #6B7686;
     }
@@ -159,14 +159,14 @@
   }
   .mi:hover { background: var(--panel-2); }
   .mi svg { width: 16px; height: 16px; flex: none; color: var(--ink-2); }
-  .mi--danger { color: var(--def); }
-  .mi--danger svg { color: var(--def); }
+  .mi--danger { color: var(--red); }
+  .mi--danger svg { color: var(--red); }
   .mi .trail { margin-left: auto; color: var(--ink-2); font-size: 11px; }
   .mi .row-x {
     margin-left: auto; width: 26px; height: 26px; border-radius: 5px; flex: none;
     display: inline-flex; align-items: center; justify-content: center; color: var(--ink-2);
   }
-  .mi .row-x:hover { background: var(--def-weak); color: var(--def); }
+  .mi .row-x:hover { background: var(--red-weak); color: var(--red); }
   .mi .row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .m-sec { font-size: 10px; font-weight: 600; letter-spacing: .13em; text-transform: uppercase; color: var(--ink-2); padding: 9px 10px 4px; }
   .m-build { font-size: 10.5px; color: var(--ink-2); padding: 6px 10px 2px; font-variant-numeric: tabular-nums; user-select: text; -webkit-user-select: text; }
@@ -243,6 +243,25 @@
     font-family: ui-monospace, "SF Mono", Menlo, monospace; color: var(--ink-2); white-space: pre;
   }
 
+  /* Export progress. Modal because the encode runs on the main thread: the
+     app is unresponsive for the duration anyway, so the overlay says WHY and
+     offers the only interaction left, which is to stop. */
+  #exportOverlay {
+    position: absolute; inset: 0; z-index: 25; display: none;
+    align-items: center; justify-content: center; background: rgba(0,0,0,.32);
+  }
+  #exportOverlay.open { display: flex; }
+  #exportOverlay .card {
+    background: var(--panel); border: 1px solid var(--line); border-radius: var(--r-md);
+    padding: 16px 18px; min-width: 240px; display: flex; flex-direction: column; gap: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.22);
+  }
+  #exportOverlay strong { font-size: 13px; }
+  #exportOverlay .track { height: 6px; border-radius: 3px; background: var(--panel-2); overflow: hidden; }
+  #exportOverlay .fill { height: 100%; width: 0%; background: var(--accent); transition: width .1s linear; }
+  #exportOverlay .row { display: flex; align-items: center; gap: 10px; }
+  #exportOverlay .row span { font-size: 12px; color: var(--ink-2); margin-right: auto; font-variant-numeric: tabular-nums; }
+
   #toast {
     position: absolute; bottom: 108px; left: 50%; transform: translateX(-50%) translateY(8px);
     background: var(--ink); color: var(--paper); font-size: 12.5px; font-weight: 500;
@@ -250,7 +269,7 @@
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 </style>
-  <script type="module" crossorigin src="./assets/index-CuGrWqmU.js"></script>
+  <script type="module" crossorigin src="./assets/index-y_LkDZkA.js"></script>
 </head>
 <body>
 <div id="app">
@@ -328,6 +347,10 @@
           <span class="mi-sw"></span>
         </div>
         <div class="m-div"></div>
+        <button class="mi" id="btnExportVideo">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5.5" width="13" height="13" rx="2.5"/><path d="M21.5 8.5v7l-6-3.5z"/></svg>
+          Export video
+        </button>
         <button class="mi" id="btnData">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/></svg>
           Play data…
@@ -376,6 +399,17 @@
   <main>
     <canvas id="court"></canvas>
     <div id="toast"></div>
+
+    <div id="exportOverlay" role="dialog" aria-modal="true" aria-labelledby="exportTitle">
+      <div class="card">
+        <strong id="exportTitle">Exporting video</strong>
+        <div class="track"><div class="fill" id="exportFill"></div></div>
+        <div class="row">
+          <span id="exportPct">0%</span>
+          <button class="b b--quiet" id="btnExportCancel">Cancel</button>
+        </div>
+      </div>
+    </div>
 
     <div id="dataPanel">
       <div class="bar">
