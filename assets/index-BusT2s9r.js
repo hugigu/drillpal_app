@@ -14538,7 +14538,7 @@ async function requestMic() {
   if (typeof navigator === "undefined" || navigator.mediaDevices?.getUserMedia === void 0) return null;
   try {
     return await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      audio: { channelCount: 1, echoCancellation: false, noiseSuppression: false, autoGainControl: true },
       video: false
     });
   } catch {
@@ -14644,7 +14644,7 @@ class Recorder {
     return traj;
   }
 }
-const BUILD = "2026-09-12 16:56Z fb4c184";
+const BUILD = "2026-09-12 17:01Z 4e1eebf";
 const canvas = document.getElementById("court");
 const ctx = canvas.getContext("2d");
 const BALL_R = 8, CONE_R = 10;
