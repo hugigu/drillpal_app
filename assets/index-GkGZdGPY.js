@@ -14664,7 +14664,7 @@ class Recorder {
     return traj;
   }
 }
-const BUILD = "2026-09-12 17:25Z 93ed60b";
+const BUILD = "2026-09-12 18:44Z 071b366";
 const canvas = document.getElementById("court");
 const ctx = canvas.getContext("2d");
 const BALL_R = 8, CONE_R = 10;
@@ -15673,6 +15673,7 @@ async function startRecording() {
   showRecordOverlay(null);
   store.freeze(true);
   state.recording = true;
+  syncViewBar();
   document.getElementById("recordLiveBar").classList.add("open");
   elapsedStartWall = performance.now();
   document.getElementById("recordElapsed").textContent = "0:00";
@@ -15696,6 +15697,7 @@ async function stopRecording() {
   recordTrajectory = recorder.stop();
   state.recording = false;
   store.freeze(false);
+  syncViewBar();
   recordNarration = micStream !== null && !micMuted ? await micCapture.stop() : null;
   micStream?.getTracks().forEach((t) => t.stop());
   micStream = null;
@@ -15761,34 +15763,40 @@ document.getElementById("btnRecordKeep").addEventListener("click", () => {
 });
 document.getElementById("btnRecordVideo").addEventListener("click", armRecording);
 if (!hasVideoExport()) document.getElementById("btnRecordVideo").remove();
+const VIEW_TOGGLES = [
+  ["vbLines", () => !state.linesHidden, (on) => {
+    state.linesHidden = !on;
+  }],
+  ["vbNotes", () => !state.notesHidden, (on) => {
+    state.notesHidden = !on;
+  }],
+  ["vbNumbers", () => state.numbersEnabled, (on) => {
+    state.numbersEnabled = on;
+  }],
+  ["vbDeclutter", () => state.declutterEnabled, (on) => {
+    state.declutterEnabled = on;
+  }]
+];
+function syncViewBar() {
+  for (const [id, get] of VIEW_TOGGLES) {
+    document.getElementById(id).setAttribute("aria-pressed", String(get()));
+  }
+  document.getElementById("vbClearNotes").disabled = state.recording;
+}
+for (const [id, get, set] of VIEW_TOGGLES) {
+  document.getElementById(id).addEventListener("click", () => {
+    set(!get());
+    syncViewBar();
+    render();
+  });
+}
+document.getElementById("vbClearNotes").addEventListener("click", () => {
+  store.commit(clearNotes, { currentTime: state.currentTime });
+  state.currentTime = store.currentTime;
+});
 document.getElementById("btnGhosts").addEventListener("click", () => {
   state.ghostsEnabled = !state.ghostsEnabled;
   document.getElementById("btnGhosts").setAttribute("aria-checked", String(state.ghostsEnabled));
-});
-document.getElementById("btnNumbers").addEventListener("click", () => {
-  state.numbersEnabled = !state.numbersEnabled;
-  document.getElementById("btnNumbers").setAttribute("aria-checked", String(state.numbersEnabled));
-  render();
-});
-document.getElementById("btnDeclutter").addEventListener("click", () => {
-  state.declutterEnabled = !state.declutterEnabled;
-  document.getElementById("btnDeclutter").setAttribute("aria-checked", String(state.declutterEnabled));
-  render();
-});
-document.getElementById("btnHideLines").addEventListener("click", () => {
-  state.linesHidden = !state.linesHidden;
-  document.getElementById("btnHideLines").setAttribute("aria-checked", String(state.linesHidden));
-  render();
-});
-document.getElementById("btnHideNotes").addEventListener("click", () => {
-  state.notesHidden = !state.notesHidden;
-  document.getElementById("btnHideNotes").setAttribute("aria-checked", String(state.notesHidden));
-  render();
-});
-document.getElementById("btnDeleteNotes").addEventListener("click", (e) => {
-  e.stopPropagation();
-  store.commit(clearNotes, { currentTime: state.currentTime });
-  state.currentTime = store.currentTime;
 });
 document.getElementById("btnSaveFormation").addEventListener("click", () => {
   const raw = prompt("Save formation as:");
@@ -15990,6 +15998,7 @@ const MENUS = [
   ["btnClearMenu", "menuClear"],
   ["btnLibrary", "menuLibrary"],
   ["btnMore", "menuMore"],
+  ["btnViewMore", "menuView"],
   ["btnForkMenu", "menuFork"]
 ];
 function closeAllMenus(except) {

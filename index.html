@@ -229,9 +229,37 @@
     background: var(--accent); border: 3px solid var(--panel); box-shadow: 0 2px 10px rgba(20,26,23,.35);
     transform: translateX(-13px);
   }
-  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--ink-2); }
-  .legend .sw { display: inline-flex; align-items: center; gap: 5px; }
-  .legend .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  /* ---- view bar: the fast lane, in the footer slot the colour legend used
+     to hold. Capped at five controls ON PURPOSE and it must never wrap: the
+     half court is height-bound (see resize()), so a second footer row would
+     shrink the court itself. Anything past these five belongs in the View
+     popover beside them, not in a sixth slot.
+
+     Membership rule, so this stays decidable as controls get added: the fast
+     lane holds exactly the controls that live in ViewOptions -- the ones
+     render() samples into the recorder, which therefore step-hold into an
+     exported clip and are part of the performance -- plus Clear notes.
+     App-only aids that can never reach a clip (Ghosts) go in the popover.
+
+     Toggle polarity is "lit = this is on/visible", so Lines and Notes are lit
+     by default and map to !linesHidden / !notesHidden. Naming them "Hide
+     lines" here would light the button at the moment the thing disappears. */
+  .viewbar { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .vb {
+    font-size: 12px; font-weight: 500; color: var(--ink-2);
+    display: inline-flex; align-items: center; gap: 6px;
+    min-height: 32px; padding: 5px 10px; border-radius: var(--r-sm);
+    border: 1px solid transparent; background: transparent; white-space: nowrap;
+    transition: background .12s, color .12s;
+  }
+  .vb svg { width: 16px; height: 16px; display: block; flex: none; }
+  .vb:hover { background: var(--panel-2); color: var(--ink); }
+  .vb:active { transform: translateY(1px); }
+  .vb[aria-pressed="true"] { color: var(--accent); background: var(--accent-weak); }
+  .vb--danger:hover { background: var(--red-weak); color: var(--red); }
+  .vb-div { width: 1px; align-self: stretch; min-height: 20px; background: var(--line); margin: 0 3px; }
+  /* Narrow screens drop to icon-only rather than wrapping -- see above. */
+  @media (max-width: 640px) { .vb .vb-label { display: none; } .vb { padding: 5px 8px; } }
 
   #dataPanel {
     position: absolute; inset: 0; background: var(--panel); z-index: 20;
@@ -315,7 +343,7 @@
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
 </style>
-  <script type="module" crossorigin src="./assets/index-hmV8JNw8.js"></script>
+  <script type="module" crossorigin src="./assets/index-GkGZdGPY.js"></script>
 </head>
 <body>
 <div id="app">
@@ -382,17 +410,6 @@
         <svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/></svg>
       </button>
       <div class="menu right" id="menuMore">
-        <div class="mi mi--switch" id="btnGhosts" role="switch" aria-checked="true" tabindex="0">Ghosts<span class="mi-sw"></span></div>
-        <div class="mi mi--switch" id="btnNumbers" role="switch" aria-checked="false" tabindex="0">Player numbers<span class="mi-sw"></span></div>
-        <div class="mi mi--switch" id="btnDeclutter" role="switch" aria-checked="false" tabindex="0">Declutter lines<span class="mi-sw"></span></div>
-        <div class="mi mi--switch" id="btnHideLines" role="switch" aria-checked="false" tabindex="0">Hide lines<span class="mi-sw"></span></div>
-        <div class="mi mi--switch" id="btnHideNotes" role="switch" aria-checked="false" tabindex="0">Hide notes
-          <span class="row-x" id="btnDeleteNotes" role="button" aria-label="Delete notes">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/></svg>
-          </span>
-          <span class="mi-sw"></span>
-        </div>
-        <div class="m-div"></div>
         <button class="mi" id="btnRecordVideo">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="2.5" y="5.5" width="13" height="13" rx="2.5"/><path d="M21.5 8.5v7l-6-3.5z"/></svg>
           Record video
@@ -532,11 +549,46 @@
       </div>
       <div class="time" id="totalOut">8.0s</div>
     </div>
-    <div class="legend">
-      <span class="sw"><span class="dot" style="background:var(--accent)"></span>move</span>
-      <span class="sw"><span class="dot" style="background:var(--pass)"></span>pass</span>
-      <span class="sw"><span class="dot" style="background:var(--shot)"></span>shot</span>
-      <span class="sw"><span class="dot" style="background:var(--ink)"></span>note</span>
+    <!-- The fast lane. Four ViewOptions toggles + Clear notes, one tap each,
+         sitting next to the scrubber because that is where the hand already
+         is while scrubbing or presenting. All five stay usable during a take
+         EXCEPT Clear notes, which is a document edit and so is disabled while
+         store.freeze() is on -- visibly, because a frozen commit returns
+         silently (store.ts) and a dead-looking button beats a dead one. -->
+    <div class="viewbar" id="viewBar">
+      <button class="vb" id="vbLines" aria-pressed="true" aria-label="Show lines">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17c4 0 5-10 9-10s5 6 9 6"/></svg>
+        <span class="vb-label">Lines</span>
+      </button>
+      <button class="vb" id="vbNotes" aria-pressed="true" aria-label="Show notes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4z"/></svg>
+        <span class="vb-label">Notes</span>
+      </button>
+      <button class="vb" id="vbNumbers" aria-pressed="false" aria-label="Show player numbers">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M10 4 8 20M16 4l-2 16M4.5 9h15M3.5 15h15"/></svg>
+        <span class="vb-label">Numbers</span>
+      </button>
+      <button class="vb" id="vbDeclutter" aria-pressed="false" aria-label="Declutter lines">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18l-7 8v6l-4 2v-8z"/></svg>
+        <span class="vb-label">Declutter</span>
+      </button>
+      <div class="vb-div"></div>
+      <button class="vb vb--danger" id="vbClearNotes" aria-label="Clear notes">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h16M9 7V5h6v2M6 7l1 13h10l1-13"/></svg>
+        <span class="vb-label">Clear notes</span>
+      </button>
+      <div class="menu-host">
+        <button class="vb" id="btnViewMore" aria-haspopup="true" aria-label="More view options">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h10M18 8h2M4 16h4M12 16h8"/><circle cx="16" cy="8" r="2"/><circle cx="10" cy="16" r="2"/></svg>
+          <span class="vb-label">View</span>
+        </button>
+        <!-- Growth lands HERE by default; promoting a control to the lane
+             above is a deliberate per-control call against the rule in the
+             .viewbar comment, not something that happens by accretion. -->
+        <div class="menu left up" id="menuView">
+          <div class="mi mi--switch" id="btnGhosts" role="switch" aria-checked="true" tabindex="0">Ghosts<span class="mi-sw"></span></div>
+        </div>
+      </div>
     </div>
   </footer>
 </div>
