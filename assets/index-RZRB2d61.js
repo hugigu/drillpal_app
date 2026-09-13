@@ -14805,7 +14805,7 @@ function writeHintsEnabled(storage, on) {
   } catch {
   }
 }
-const BUILD = "2026-09-13 10:56Z 0be5ca7";
+const BUILD = "2026-09-13 11:25Z 6614392";
 function $(id) {
   const el = document.getElementById(id);
   if (!el) throw new Error(`missing #${id}`);
