@@ -14721,8 +14721,13 @@ class Recorder {
     return traj;
   }
 }
-const BUILD = "2026-09-13 00:15Z 18cf7a1";
-const canvas = document.getElementById("court");
+const BUILD = "2026-09-13 01:03Z 76842ac";
+function $(id) {
+  const el = document.getElementById(id);
+  if (!el) throw new Error(`missing #${id}`);
+  return el;
+}
+const canvas = $("court");
 const ctx = canvas.getContext("2d");
 const BALL_R = 8, CONE_R = 10;
 const MAX_BALLS_PER_PLAYER = 2;
@@ -14834,8 +14839,8 @@ function redo() {
   store.redo();
 }
 function updateUndoRedoButtons() {
-  document.getElementById("btnUndo").disabled = !store.canUndo;
-  document.getElementById("btnRedo").disabled = !store.canRedo;
+  $("btnUndo").disabled = !store.canUndo;
+  $("btnRedo").disabled = !store.canRedo;
 }
 const FIBA = {
   WIDTH: 15,
@@ -14902,7 +14907,7 @@ function removeCone(cone2) {
 const FORMATIONS_KEY = "drillpal.formations";
 function readSavedFormations() {
   try {
-    return JSON.parse(localStorage.getItem(FORMATIONS_KEY)) || {};
+    return JSON.parse(localStorage.getItem(FORMATIONS_KEY) ?? "null") || {};
   } catch {
     return {};
   }
@@ -14910,8 +14915,9 @@ function readSavedFormations() {
 function writeSavedFormations(formations) {
   localStorage.setItem(FORMATIONS_KEY, JSON.stringify(formations));
 }
+const HTML_ESCAPES = { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" };
 function escapeHtml(s) {
-  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  return s.replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
 }
 function libRowsHtml(names) {
   if (!names.length) return '<div class="m-empty">None saved yet</div>';
@@ -14921,8 +14927,8 @@ function libRowsHtml(names) {
   }).join("");
 }
 function renderLibraryMenu() {
-  document.getElementById("libPlays").innerHTML = libRowsHtml(Object.keys(readSavedPlays()).sort());
-  document.getElementById("libFormations").innerHTML = libRowsHtml(Object.keys(readSavedFormations()).sort());
+  $("libPlays").innerHTML = libRowsHtml(Object.keys(readSavedPlays()).sort());
+  $("libFormations").innerHTML = libRowsHtml(Object.keys(readSavedFormations()).sort());
 }
 function refreshFormationsSelect() {
   renderLibraryMenu();
@@ -14980,7 +14986,7 @@ const PLAYS_KEY_LEGACY = "drillpal.plays";
 const PLAYS_KEY = "drillpal.plays.v1";
 function readJsonKey(key) {
   try {
-    return JSON.parse(localStorage.getItem(key)) || {};
+    return JSON.parse(localStorage.getItem(key) ?? "null") || {};
   } catch {
     return {};
   }
@@ -15135,11 +15141,12 @@ canvas.addEventListener("pointerdown", (e) => {
       return;
     }
     const newToken = stampToken("blue", pt);
-    activeDrag = { pointerId: e.pointerId, token: newToken, moved: true };
+    activeDrag = { pointerId: e.pointerId, token: newToken, moved: true, startPt: pt };
     render();
     return;
   }
-  let mode = "note", token2 = null, fromId = null, ball2 = null;
+  let mode = "note";
+  let token2 = null, fromId = null, ball2 = null;
   const hitB = hitBall(pt);
   if (hitB) {
     const holderId = holderAt(hitB, state.currentTime);
@@ -15260,7 +15267,7 @@ function finishPointer(e) {
     const target = hitToken(drag.pt);
     let changed = false;
     if (target) {
-      const heldCount = ballsHeldBy(state.balls, target.id, state.currentTime, drag.ball);
+      const heldCount = ballsHeldBy(state.balls, target.id, state.currentTime, drag.ball ?? void 0);
       if (heldCount >= MAX_BALLS_PER_PLAYER) {
         toast("already holding " + MAX_BALLS_PER_PLAYER, getCssVar("--red"));
       } else if (drag.isNew) {
@@ -15346,6 +15353,9 @@ function finishStroke(e) {
   const inkPoints = () => s.points.map((pt) => fromScreen(strokeLayout, pt));
   if (s.mode === "move") {
     store.commit(opCommitStroke, {
+      // s.token is only ever null when s.mode isn't "move" (set together at
+      // pointerdown) — see ActiveStroke's construction, not encoded in its
+      // type.
       outcome: { kind: "move", tokenId: s.token.id, startT: s.startT, endT: s.startT + durMs, points: inkPoints() },
       currentTime: state.currentTime
     });
@@ -15363,6 +15373,8 @@ function finishStroke(e) {
     const transferDurMs = toId != null ? PASS_DURATION_MS : durMs;
     store.commit(opCommitStroke, {
       outcome: {
+        // s.ball/s.fromId are only ever null when s.mode isn't "transfer" —
+        // same as s.token above.
         kind: "transfer",
         ballId: s.ball.id,
         fromId: s.fromId,
@@ -15513,18 +15525,18 @@ let _lastTimeStr = "", _lastTotalStr = "";
 function drawTransport() {
   const timeStr = (state.currentTime / 1e3).toFixed(1) + "s";
   if (timeStr !== _lastTimeStr) {
-    document.getElementById("timeOut").textContent = timeStr;
+    $("timeOut").textContent = timeStr;
     _lastTimeStr = timeStr;
   }
   const totalStr = (totalDuration() / 1e3).toFixed(1) + "s";
   if (totalStr !== _lastTotalStr) {
-    document.getElementById("totalOut").textContent = totalStr;
+    $("totalOut").textContent = totalStr;
     _lastTotalStr = totalStr;
   }
   const pct = state.currentTime / totalDuration() * 100;
-  document.getElementById("scrubFill").style.width = pct + "%";
-  document.getElementById("scrubThumb").style.left = pct + "%";
-  const forkMark = document.getElementById("forkMark");
+  $("scrubFill").style.width = pct + "%";
+  $("scrubThumb").style.left = pct + "%";
+  const forkMark = $("forkMark");
   if (state.forkAt != null) {
     forkMark.style.display = "";
     forkMark.style.left = state.forkAt / totalDuration() * 100 + "%";
@@ -15532,7 +15544,7 @@ function drawTransport() {
     forkMark.style.display = "none";
   }
 }
-const scrubEl = document.getElementById("scrub");
+const scrubEl = $("scrub");
 let scrubbing = false;
 const FORK_SNAP_PX = 10;
 function seekFromClientX(clientX) {
@@ -15561,8 +15573,8 @@ scrubEl.addEventListener("pointerup", () => {
 });
 function togglePlay(force) {
   state.playing = force !== void 0 ? force : !state.playing;
-  document.getElementById("playIcon").innerHTML = state.playing ? '<path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/>' : '<path d="M8 5v14l11-7z"/>';
-  document.getElementById("btnPlay").setAttribute("aria-label", state.playing ? "Pause" : "Play");
+  $("playIcon").innerHTML = state.playing ? '<path d="M7 5h3.5v14H7zM13.5 5H17v14h-3.5z"/>' : '<path d="M8 5v14l11-7z"/>';
+  $("btnPlay").setAttribute("aria-label", state.playing ? "Pause" : "Play");
   lastPlayTs = null;
   if (state.playing) requestAnimationFrame(playTick);
 }
@@ -15576,10 +15588,10 @@ function playTick(ts) {
   render();
   requestAnimationFrame(playTick);
 }
-document.getElementById("btnPlay").addEventListener("click", () => togglePlay());
-let toastTimer = null;
+$("btnPlay").addEventListener("click", () => togglePlay());
+let toastTimer;
 function toast(text, bg) {
-  const el = document.getElementById("toast");
+  const el = $("toast");
   el.textContent = text;
   el.style.background = bg || getCssVar("--ink");
   el.classList.add("show");
@@ -15629,29 +15641,29 @@ function buildDebugView() {
   };
 }
 function updateDataPanel() {
-  document.getElementById("dataOut").textContent = JSON.stringify(buildDebugView(), null, 2);
+  $("dataOut").textContent = JSON.stringify(buildDebugView(), null, 2);
 }
-document.getElementById("btnData").addEventListener("click", () => {
+$("btnData").addEventListener("click", () => {
   updateDataPanel();
-  document.getElementById("dataPanel").classList.add("open");
+  $("dataPanel").classList.add("open");
 });
-document.getElementById("btnCloseData").addEventListener("click", () => {
-  document.getElementById("dataPanel").classList.remove("open");
+$("btnCloseData").addEventListener("click", () => {
+  $("dataPanel").classList.remove("open");
 });
-document.getElementById("btnCopy").addEventListener("click", async () => {
+$("btnCopy").addEventListener("click", async () => {
   try {
-    await navigator.clipboard.writeText(document.getElementById("dataOut").textContent);
+    await navigator.clipboard.writeText($("dataOut").textContent);
     toast("copied", getCssVar("--accent"));
   } catch {
   }
 });
-document.getElementById("btnCopyDebug").addEventListener("click", async () => {
+$("btnCopyDebug").addEventListener("click", async () => {
   const blob = JSON.stringify({ build: BUILD, ua: navigator.userAgent, snapshot: snapshotDocument() }, null, 2);
   try {
     await navigator.clipboard.writeText(blob);
     toast("debug copied", getCssVar("--accent"));
   } catch {
-    document.getElementById("dataOut").textContent = blob;
+    $("dataOut").textContent = blob;
     toast("shown below — select + copy", getCssVar("--red"));
   }
 });
@@ -15686,10 +15698,10 @@ function saveBlob(blob, filename) {
   setTimeout(() => URL.revokeObjectURL(url2), 6e4);
 }
 function showRecordOverlay(view2) {
-  document.getElementById("recordOverlay").classList.toggle("open", view2 != null);
-  document.getElementById("recordReady").hidden = view2 !== "ready";
-  document.getElementById("recordEncoding").hidden = view2 !== "encoding";
-  document.getElementById("recordReview").hidden = view2 !== "review";
+  $("recordOverlay").classList.toggle("open", view2 != null);
+  $("recordReady").hidden = view2 !== "ready";
+  $("recordEncoding").hidden = view2 !== "encoding";
+  $("recordReview").hidden = view2 !== "review";
 }
 function currentViewOptions() {
   return {
@@ -15708,25 +15720,25 @@ async function armRecording() {
     return;
   }
   micMuted = false;
-  document.getElementById("btnMicToggle").setAttribute("aria-checked", "true");
-  document.getElementById("recordMicHint").hidden = true;
-  const startBtn = document.getElementById("btnRecordStart");
+  $("btnMicToggle").setAttribute("aria-checked", "true");
+  $("recordMicHint").hidden = true;
+  const startBtn = $("btnRecordStart");
   startBtn.disabled = true;
   showRecordOverlay("ready");
   micStream = await requestMic();
   if (micStream === null) {
     micMuted = true;
-    document.getElementById("btnMicToggle").setAttribute("aria-checked", "false");
-    document.getElementById("recordMicHint").hidden = false;
+    $("btnMicToggle").setAttribute("aria-checked", "false");
+    $("recordMicHint").hidden = false;
   }
   startBtn.disabled = false;
 }
-document.getElementById("btnMicToggle").addEventListener("click", () => {
+$("btnMicToggle").addEventListener("click", () => {
   if (micStream === null) return;
   micMuted = !micMuted;
-  document.getElementById("btnMicToggle").setAttribute("aria-checked", String(!micMuted));
+  $("btnMicToggle").setAttribute("aria-checked", String(!micMuted));
 });
-document.getElementById("btnRecordCancel").addEventListener("click", () => {
+$("btnRecordCancel").addEventListener("click", () => {
   micStream?.getTracks().forEach((t) => t.stop());
   micStream = null;
   showRecordOverlay(null);
@@ -15738,13 +15750,13 @@ async function startRecording() {
   store.freeze(true);
   state.recording = true;
   syncViewBar();
-  document.getElementById("recordLiveBar").classList.add("open");
+  $("recordLiveBar").classList.add("open");
   elapsedStartWall = performance.now();
-  document.getElementById("recordElapsed").textContent = "0:00";
+  $("recordElapsed").textContent = "0:00";
   let warned = false;
   elapsedTimer = setInterval(() => {
     const elapsed = performance.now() - elapsedStartWall;
-    document.getElementById("recordElapsed").textContent = fmtElapsed(elapsed);
+    $("recordElapsed").textContent = fmtElapsed(elapsed);
     if (!warned && elapsed >= RECORD_WARN_MS) {
       warned = true;
       toast("long take — still recording", getCssVar("--ink"));
@@ -15753,10 +15765,10 @@ async function startRecording() {
   recorder.start(performance.now(), state.currentTime, currentViewOptions(), store.doc, null);
   if (micStream !== null && !micMuted) await micCapture.start(micStream);
 }
-document.getElementById("btnRecordStart").addEventListener("click", startRecording);
+$("btnRecordStart").addEventListener("click", startRecording);
 async function stopRecording() {
   if (elapsedTimer !== null) clearInterval(elapsedTimer);
-  document.getElementById("recordLiveBar").classList.remove("open");
+  $("recordLiveBar").classList.remove("open");
   recorder.sample(performance.now(), state.currentTime, currentViewOptions(), store.doc, null);
   recordTrajectory = recorder.stop();
   state.recording = false;
@@ -15767,12 +15779,12 @@ async function stopRecording() {
   micStream = null;
   await renderTakeToMp4();
 }
-document.getElementById("btnRecordStop").addEventListener("click", stopRecording);
+$("btnRecordStop").addEventListener("click", stopRecording);
 async function renderTakeToMp4() {
   if (recordTrajectory === null) return;
   showRecordOverlay("encoding");
-  document.getElementById("recordFill").style.width = "0%";
-  document.getElementById("recordPct").textContent = "0%";
+  $("recordFill").style.width = "0%";
+  $("recordPct").textContent = "0%";
   recordAbort = new AbortController();
   const narration = recordNarration !== null && recordNarration.pcm.length > 0 ? recordNarration : void 0;
   const narrationOffsetS = narration !== void 0 ? (narration.startWallT - recordTrajectory[0].wallT) / 1e3 : void 0;
@@ -15781,16 +15793,19 @@ async function renderTakeToMp4() {
       palette: currentPalette(),
       view: currentViewOptions(),
       trajectory: recordTrajectory,
-      narration,
-      narrationOffsetS,
+      // exactOptionalPropertyTypes: an optional field must be OMITTED, not
+      // set to undefined, so a possibly-undefined value can't be assigned
+      // by shorthand — spread it in only when present.
+      ...narration !== void 0 ? { narration } : {},
+      ...narrationOffsetS !== void 0 ? { narrationOffsetS } : {},
       onProgress: (done, total) => {
         const pct = total > 0 ? Math.round(done / total * 100) : 0;
-        document.getElementById("recordFill").style.width = pct + "%";
-        document.getElementById("recordPct").textContent = pct + "%";
+        $("recordFill").style.width = pct + "%";
+        $("recordPct").textContent = pct + "%";
       },
       signal: recordAbort.signal
     });
-    document.getElementById("recordPreview").src = URL.createObjectURL(recordBlob);
+    $("recordPreview").src = URL.createObjectURL(recordBlob);
     showRecordOverlay("review");
   } catch (err) {
     if (!recordAbort.signal.aborted) {
@@ -15802,31 +15817,31 @@ async function renderTakeToMp4() {
     recordAbort = null;
   }
 }
-document.getElementById("btnRecordCancelEncode").addEventListener("click", () => recordAbort?.abort());
+$("btnRecordCancelEncode").addEventListener("click", () => recordAbort?.abort());
 function closeRecordPreview() {
-  const video = document.getElementById("recordPreview");
+  const video = $("recordPreview");
   if (video.src) URL.revokeObjectURL(video.src);
   video.src = "";
   recordBlob = null;
   recordTrajectory = null;
   recordNarration = null;
 }
-document.getElementById("btnRecordDiscard").addEventListener("click", () => {
+$("btnRecordDiscard").addEventListener("click", () => {
   closeRecordPreview();
   showRecordOverlay(null);
 });
-document.getElementById("btnRecordRetake").addEventListener("click", async () => {
+$("btnRecordRetake").addEventListener("click", async () => {
   closeRecordPreview();
   await armRecording();
 });
-document.getElementById("btnRecordKeep").addEventListener("click", () => {
+$("btnRecordKeep").addEventListener("click", () => {
   if (recordBlob) saveBlob(recordBlob, exportFilename());
   closeRecordPreview();
   showRecordOverlay(null);
   toast("video saved", getCssVar("--accent"));
 });
-document.getElementById("btnRecordVideo").addEventListener("click", armRecording);
-if (!hasVideoExport()) document.getElementById("btnRecordVideo").remove();
+$("btnRecordVideo").addEventListener("click", armRecording);
+if (!hasVideoExport()) $("btnRecordVideo").remove();
 const VIEW_TOGGLES = [
   ["vbNotes", () => !state.notesHidden, (on) => {
     state.notesHidden = !on;
@@ -15841,33 +15856,33 @@ const VIEW_TOGGLES = [
 const LINES_STATES = ["all", "ball", "none"];
 function syncViewBar() {
   for (const [id, get] of VIEW_TOGGLES) {
-    document.getElementById(id).setAttribute("aria-pressed", String(get()));
+    $(id).setAttribute("aria-pressed", String(get()));
   }
   for (const v of LINES_STATES) {
-    document.getElementById("vbLines-" + v).setAttribute("aria-pressed", String(state.lines === v));
+    $("vbLines-" + v).setAttribute("aria-pressed", String(state.lines === v));
   }
-  document.getElementById("vbFocus").disabled = state.lines === "none";
-  document.getElementById("btnClearBoard").disabled = state.recording;
+  $("vbFocus").disabled = state.lines === "none";
+  $("btnClearBoard").disabled = state.recording;
 }
 for (const v of LINES_STATES) {
-  document.getElementById("vbLines-" + v).addEventListener("click", () => {
+  $("vbLines-" + v).addEventListener("click", () => {
     state.lines = v;
     syncViewBar();
     render();
   });
 }
 for (const [id, get, set] of VIEW_TOGGLES) {
-  document.getElementById(id).addEventListener("click", () => {
+  $(id).addEventListener("click", () => {
     set(!get());
     syncViewBar();
     render();
   });
 }
-document.getElementById("btnGhosts").addEventListener("click", () => {
+$("btnGhosts").addEventListener("click", () => {
   state.ghostsEnabled = !state.ghostsEnabled;
-  document.getElementById("btnGhosts").setAttribute("aria-checked", String(state.ghostsEnabled));
+  $("btnGhosts").setAttribute("aria-checked", String(state.ghostsEnabled));
 });
-document.getElementById("btnSaveFormation").addEventListener("click", () => {
+$("btnSaveFormation").addEventListener("click", () => {
   const raw = prompt("Save formation as:");
   const name = raw == null ? "" : raw.trim();
   if (!name) return;
@@ -15875,7 +15890,7 @@ document.getElementById("btnSaveFormation").addEventListener("click", () => {
   saveFormation(name);
   toast(`saved "${name}"`, getCssVar("--accent"));
 });
-document.getElementById("btnSavePlay").addEventListener("click", () => {
+$("btnSavePlay").addEventListener("click", () => {
   const raw = prompt("Save play as:");
   const name = raw == null ? "" : raw.trim();
   if (!name) return;
@@ -15884,7 +15899,7 @@ document.getElementById("btnSavePlay").addEventListener("click", () => {
   toast(`saved play "${name}"`, getCssVar("--accent"));
 });
 function wireLibSection(containerId, kind) {
-  document.getElementById(containerId).addEventListener("click", (e) => {
+  $(containerId).addEventListener("click", (e) => {
     const row = e.target.closest(".lib-row");
     if (!row) return;
     e.stopPropagation();
@@ -15917,13 +15932,13 @@ wireLibSection("libFormations", "formation");
 renderLibraryMenu();
 function refreshForkUI() {
   const forked = state.forkAt != null;
-  document.getElementById("app").classList.toggle("forked", forked);
+  $("app").classList.toggle("forked", forked);
   if (forked) {
-    const sel = document.getElementById("selBranch");
+    const sel = $("selBranch");
     sel.innerHTML = state.branches.map((b) => `<option value="${b.id}"${b.id === state.activeBranchId ? " selected" : ""}>${escapeHtml(b.name)}</option>`).join("");
   }
 }
-document.getElementById("btnFork").addEventListener("click", () => {
+$("btnFork").addEventListener("click", () => {
   if (state.arranging) {
     toast("finish arranging first", getCssVar("--red"));
     return;
@@ -15936,17 +15951,17 @@ document.getElementById("btnFork").addEventListener("click", () => {
   refreshForkUI();
   toast("forked — drawing branch A", getCssVar("--accent"));
 });
-document.getElementById("selBranch").addEventListener("change", (e) => {
+$("selBranch").addEventListener("change", (e) => {
   switchBranch(Number(e.target.value));
   refreshForkUI();
 });
-document.getElementById("btnAddBranch").addEventListener("click", () => {
+$("btnAddBranch").addEventListener("click", () => {
   const branch = addBranch();
   refreshForkUI();
   if (branch) toast(`added branch ${branch.name} — drawing it now`, getCssVar("--accent"));
 });
-document.getElementById("btnDeleteBranch").addEventListener("click", () => {
-  const id = Number(document.getElementById("selBranch").value);
+$("btnDeleteBranch").addEventListener("click", () => {
+  const id = Number($("selBranch").value);
   const branch = branchById(id);
   if (!branch) return;
   const collapsing = state.branches.length <= 2;
@@ -15956,7 +15971,7 @@ document.getElementById("btnDeleteBranch").addEventListener("click", () => {
   refreshForkUI();
   toast(collapsing ? "fork collapsed" : `deleted branch ${branch.name}`, getCssVar("--red"));
 });
-document.getElementById("btnRemoveFork").addEventListener("click", () => {
+$("btnRemoveFork").addEventListener("click", () => {
   if (!confirm("Remove fork? All branches will be discarded.")) return;
   removeFork();
   refreshForkUI();
@@ -15970,10 +15985,10 @@ function newBlankPlay({ arrange = true } = {}) {
   refreshForkUI();
   if (arrange) setArranging(true);
 }
-document.getElementById("btnBlank").addEventListener("click", () => newBlankPlay());
+$("btnBlank").addEventListener("click", () => newBlankPlay());
 function refreshCourtUI() {
-  document.getElementById("btnCourtHalf").setAttribute("aria-pressed", String(state.courtMode !== "full"));
-  document.getElementById("btnCourtFull").setAttribute("aria-pressed", String(state.courtMode === "full"));
+  $("btnCourtHalf").setAttribute("aria-pressed", String(state.courtMode !== "full"));
+  $("btnCourtFull").setAttribute("aria-pressed", String(state.courtMode === "full"));
 }
 function setCourtMode(mode) {
   if (mode === state.courtMode) return;
@@ -15988,9 +16003,9 @@ function setCourtMode(mode) {
   refreshCourtUI();
   toast(`${mode === "full" ? "full" : "half"} court`, getCssVar("--accent"));
 }
-document.getElementById("btnCourtHalf").addEventListener("click", () => setCourtMode("half"));
-document.getElementById("btnCourtFull").addEventListener("click", () => setCourtMode("full"));
-document.getElementById("btnClearBoard").addEventListener("click", () => {
+$("btnCourtHalf").addEventListener("click", () => setCourtMode("half"));
+$("btnCourtFull").addEventListener("click", () => setCourtMode("full"));
+$("btnClearBoard").addEventListener("click", () => {
   const doc = store.doc;
   if (!hasDrawnContent() && !doc.fork) return;
   const msg = doc.fork ? "Clear the board? All lines and notes go, and every branch is discarded. Players, positions and cones stay." : "Clear the board? All lines and notes go. Players, positions and cones stay.";
@@ -15999,12 +16014,12 @@ document.getElementById("btnClearBoard").addEventListener("click", () => {
   state.currentTime = 0;
   refreshForkUI();
 });
-document.getElementById("btnClearNotes").addEventListener("click", () => {
+$("btnClearNotes").addEventListener("click", () => {
   store.commit(clearNotes, { currentTime: state.currentTime });
   state.currentTime = store.currentTime;
 });
-document.getElementById("btnUndo").addEventListener("click", undo);
-document.getElementById("btnRedo").addEventListener("click", redo);
+$("btnUndo").addEventListener("click", undo);
+$("btnRedo").addEventListener("click", redo);
 window.addEventListener("keydown", (e) => {
   if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "z") return;
   e.preventDefault();
@@ -16013,15 +16028,15 @@ window.addEventListener("keydown", (e) => {
 });
 function setArrangeMode(mode) {
   arrangeMode = mode;
-  document.getElementById("btnAddPlayer").setAttribute("aria-pressed", String(mode === "player"));
-  document.getElementById("btnRemove").setAttribute("aria-pressed", String(mode === "remove"));
+  $("btnAddPlayer").setAttribute("aria-pressed", String(mode === "player"));
+  $("btnRemove").setAttribute("aria-pressed", String(mode === "remove"));
 }
 function setArranging(on) {
   state.arranging = on;
-  const btn = document.getElementById("btnArrange");
+  const btn = $("btnArrange");
   btn.textContent = on ? "Done" : "Arrange";
   btn.classList.toggle("b--primary", on);
-  document.getElementById("app").classList.toggle("arranging", on);
+  $("app").classList.toggle("arranging", on);
   if (on) setArrangeMode("player");
   if (on) {
     state.currentTime = 0;
@@ -16029,14 +16044,14 @@ function setArranging(on) {
   }
   resize();
 }
-document.getElementById("btnArrange").addEventListener("click", () => {
+$("btnArrange").addEventListener("click", () => {
   if (state.recording) return;
   setArranging(!state.arranging);
 });
-document.getElementById("btnAddPlayer").addEventListener("click", () => setArrangeMode("player"));
-document.getElementById("btnRemove").addEventListener("click", () => setArrangeMode("remove"));
+$("btnAddPlayer").addEventListener("click", () => setArrangeMode("player"));
+$("btnRemove").addEventListener("click", () => setArrangeMode("remove"));
 function wireSource(elId, kind) {
-  const el = document.getElementById(elId);
+  const el = $(elId);
   el.addEventListener("pointerdown", (e) => {
     e.preventDefault();
     const pt = localPoint(e);
@@ -16073,13 +16088,13 @@ const MENUS = [
 function closeAllMenus(except) {
   for (const [trigId, menuId] of MENUS) {
     if (menuId === except) continue;
-    document.getElementById(menuId).classList.remove("show");
-    document.getElementById(trigId).classList.remove("menu-open");
+    $(menuId).classList.remove("show");
+    $(trigId).classList.remove("menu-open");
   }
 }
 for (const [trigId, menuId] of MENUS) {
-  const trig = document.getElementById(trigId);
-  const menu = document.getElementById(menuId);
+  const trig = $(trigId);
+  const menu = $(menuId);
   trig.addEventListener("click", (e) => {
     e.stopPropagation();
     const willOpen = !menu.classList.contains("show");
@@ -16104,8 +16119,8 @@ document.addEventListener("click", () => closeAllMenus());
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeAllMenus();
 });
-document.getElementById("buildStamp").textContent = "build " + BUILD + " · core " + CORE_VERSION;
+$("buildStamp").textContent = "build " + BUILD + " · core " + CORE_VERSION;
 console.log("DrillPal build " + BUILD + " · core " + CORE_VERSION);
 new ResizeObserver(resize).observe(canvas);
 resize();
-document.getElementById("btnBlank").click();
+$("btnBlank").click();
