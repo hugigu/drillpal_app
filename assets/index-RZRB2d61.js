@@ -587,6 +587,7 @@ const CHROME = {
   HIT_BALL_PX: 16,
   HIT_CONE_PX: 20,
   HIT_STROKE_PX: 16,
+  HIT_TRANSFER_TARGET_PX: 30,
   /**
    * Drawn-deviation, in px, above which a pass keeps its arc instead of
    * flattening to straight (prototype's PASS_STRAIGHT_THRESHOLD). Same judgment
@@ -852,6 +853,17 @@ function strokePhase(startT, endT, currentTime) {
   if (currentTime > endT) return "past";
   return "active";
 }
+function segmentDrawnNow(seg, currentTime, focus) {
+  const phase = strokePhase(seg.startT, seg.endT, currentTime);
+  if (phase === "future") return !beyondFutureHorizon(seg.startT, currentTime, focus);
+  if (phase === "past") return fadeAlpha(seg.endT, currentTime, focus) > 0;
+  return true;
+}
+function moveSegmentVisible(lines, balls, tokenId, seg, currentTime, focus) {
+  if (lines === "none") return false;
+  if (lines === "ball" && !heldAnyBallDuring(balls, tokenId, seg.startT, seg.endT)) return false;
+  return segmentDrawnNow(seg, currentTime, focus);
+}
 function contentEnd(resolved) {
   let maxT = 0;
   for (const tk of resolved.tokens) for (const s of tk.segments) maxT = Math.max(maxT, s.endT);
@@ -908,6 +920,34 @@ function hitCone$1(resolved, layout, pt, radiusPx = CHROME.HIT_CONE_PX) {
     if (d < r && d < bestD) {
       best = cone2;
       bestD = d;
+    }
+  }
+  return best;
+}
+function pickTransferTarget(resolved, layout, courtMode, t, endPt, fromId, view2) {
+  const marker = hitToken$1(resolved, layout, t, toScreen(layout, endPt), CHROME.HIT_TRANSFER_TARGET_PX);
+  if (marker) return { toId: marker.id };
+  if (nearHoop(courtMode, endPt)) return { toId: null };
+  const line = hitVisibleMoveLine(resolved, layout, t, endPt, fromId, view2);
+  return line ? { toId: line.id } : null;
+}
+function minDistToPolyline(pt, points2) {
+  let best = Infinity;
+  for (let i = 1; i < points2.length; i++) best = Math.min(best, distToSeg(pt, points2[i - 1], points2[i]));
+  return best;
+}
+function hitVisibleMoveLine(resolved, layout, t, tap, excludeTokenId, view2) {
+  const r = radiusM(CHROME.HIT_STROKE_PX, layout);
+  let best = null, bestD = Infinity;
+  for (const token2 of resolved.tokens) {
+    if (token2.id === excludeTokenId) continue;
+    for (const seg of token2.segments) {
+      if (!moveSegmentVisible(view2.lines, resolved.balls, token2.id, seg, t, view2.focusEnabled)) continue;
+      const d = minDistToPolyline(tap, seg.points);
+      if (d < r && d < bestD) {
+        best = token2;
+        bestD = d;
+      }
     }
   }
   return best;
@@ -1670,16 +1710,14 @@ function renderTokenSegRun(ctx2, layout, memo, token2, miniSeg, opts, currentTim
   }
   ctx2.restore();
 }
-function drawTokenPath(ctx2, layout, palette, memo, token2, t, focus, balls, possessionSig, ballOnly = false) {
+function drawTokenPath(ctx2, layout, palette, memo, token2, t, focus, balls, possessionSig, lines = "all") {
   for (const seg of token2.segments) {
-    if (ballOnly && !heldAnyBallDuring(balls, token2.id, seg.startT, seg.endT)) continue;
+    if (!moveSegmentVisible(lines, balls, token2.id, seg, t, focus)) continue;
     const color = palette.accent;
     const phase = strokePhase(seg.startT, seg.endT, t);
     const points2 = smoothedMovePoints(memo, seg.points);
     if (phase === "future") {
-      if (!beyondFutureHorizon(seg.startT, t, focus)) {
-        drawFutureStroke(ctx2, layout, palette, points2, futureStrokeAlpha(seg.startT, t, focus));
-      }
+      drawFutureStroke(ctx2, layout, palette, points2, futureStrokeAlpha(seg.startT, t, focus));
       continue;
     }
     if (phase === "past") {
@@ -1846,7 +1884,6 @@ function renderScene(ctx2, doc, t, opts) {
   const resolved = resolveBranch(doc, view2.branchId ?? void 0);
   const possessionSig = possessionSignature(resolved.balls);
   const focus = view2.focusEnabled;
-  const ballOnly = view2.lines === "ball";
   drawCourt(ctx2, layout, palette);
   drawCones(ctx2, layout, palette, resolved);
   if (view2.lines !== "none") {
@@ -1861,7 +1898,7 @@ function renderScene(ctx2, doc, t, opts) {
         focus,
         resolved.balls,
         possessionSig,
-        ballOnly
+        view2.lines
       );
     }
     drawBallTransfers(ctx2, layout, palette, resolved, t, focus);
@@ -14768,7 +14805,7 @@ function writeHintsEnabled(storage, on) {
   } catch {
   }
 }
-const BUILD = "2026-09-13 10:04Z e733af0";
+const BUILD = "2026-09-13 10:56Z 0be5ca7";
 function $(id) {
   const el = document.getElementById(id);
   if (!el) throw new Error(`missing #${id}`);
@@ -15412,13 +15449,22 @@ function finishStroke(e) {
     toast("move", getCssVar("--accent"));
   } else if (s.mode === "transfer") {
     const endPt = s.points[s.points.length - 1];
-    const target = hitToken(endPt, 30);
-    if (!target && !nearHoop(state.courtMode, toCourt(endPt))) {
+    const { resolved, layout: liveLayout } = liveView();
+    const target = pickTransferTarget(
+      resolved,
+      liveLayout,
+      state.courtMode,
+      s.startT,
+      toCourt(endPt),
+      s.fromId,
+      { lines: state.lines, focusEnabled: state.focusEnabled }
+    );
+    if (!target) {
       toast("no target", getCssVar("--red"));
       render();
       return;
     }
-    const toId = target ? target.id : null;
+    const toId = target.toId;
     const transferDurMs = toId != null ? PASS_DURATION_MS : durMs;
     store.commit(opCommitStroke, {
       outcome: {
