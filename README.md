@@ -7,4 +7,4 @@ https://hugigu.github.io/drillpal_app/
 output, overwritten wholesale on each deploy. The source of truth is the
 private DrillPal repo; publish with its `./deploy.sh`.
 
-Build: 2026-09-13 01:03Z 76842ac
+Build: 2026-09-13 01:14Z 52f6ed2

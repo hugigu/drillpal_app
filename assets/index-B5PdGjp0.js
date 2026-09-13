@@ -14721,7 +14721,7 @@ class Recorder {
     return traj;
   }
 }
-const BUILD = "2026-09-13 01:03Z 76842ac";
+const BUILD = "2026-09-13 01:14Z 52f6ed2";
 function $(id) {
   const el = document.getElementById(id);
   if (!el) throw new Error(`missing #${id}`);
@@ -15093,6 +15093,11 @@ function hitAnyStroke(pt, radiusPx) {
 function screenDist(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
+function screenPathLength(points2) {
+  let d = 0;
+  for (let i = 1; i < points2.length; i++) d += screenDist(points2[i - 1], points2[i]);
+  return d;
+}
 function clampCourt(p) {
   return {
     u: clamp(p.u, 0, FIBA$1.WIDTH),
@@ -15323,7 +15328,7 @@ function finishStroke(e) {
   if (!activeStroke || e.pointerId !== activeStroke.pointerId) return;
   const s = activeStroke;
   activeStroke = null;
-  const len = pathLength(s.points);
+  const len = screenPathLength(s.points);
   const tapPoint = s.points[s.points.length - 1];
   if (len >= 8) lastTimelineTap = null;
   if (len < 8) {
