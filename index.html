@@ -350,8 +350,30 @@
     padding: 7px 13px; border-radius: 20px; opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s;
   }
   #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* In-app hints (src/app/hints.ts). Top-centre of the court — the spot the
+     live record bar takes during a take, when hints are hidden anyway. Taps
+     pass straight through: a hint must never block the stroke it asks for. */
+  #hint {
+    position: absolute; top: 10px; left: 50%; transform: translateX(-50%);
+    max-width: calc(100% - 24px); z-index: 15; pointer-events: none;
+    background: var(--panel); color: var(--ink); border: 1px solid var(--line);
+    font-size: 13px; font-weight: 500; line-height: 1.35; text-align: center;
+    padding: 7px 14px; border-radius: 999px; box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  }
+  #hint[hidden] { display: none; }
+  /* A GAP ring (panel, then accent): a bare accent ring vanishes on Done,
+     which is itself accent-filled. Radius is for #scrub, a square track. */
+  .hint-target { border-radius: var(--r-sm); animation: hint-pulse 1.6s ease-in-out infinite; }
+  @keyframes hint-pulse {
+    0%, 100% { box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent); }
+    50%      { box-shadow: 0 0 0 2px var(--panel), 0 0 0 9px var(--accent-weak); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .hint-target { animation: none; box-shadow: 0 0 0 2px var(--panel), 0 0 0 4px var(--accent); }
+  }
 </style>
-  <script type="module" crossorigin src="./assets/index-B5PdGjp0.js"></script>
+  <script type="module" crossorigin src="./assets/index-BMln4fyy.js"></script>
 </head>
 <body>
 <div id="app">
@@ -462,6 +484,7 @@
   <main>
     <canvas id="court"></canvas>
     <div id="toast"></div>
+    <div id="hint" role="status" aria-live="polite" hidden></div>
 
     <div id="recordOverlay" role="dialog" aria-modal="true" aria-labelledby="recordTitle">
       <div class="card">
@@ -594,6 +617,7 @@
              .viewbar comment, not something that happens by accretion. -->
         <div class="menu left up" id="menuView">
           <div class="mi mi--switch" id="btnGhosts" role="switch" aria-checked="true" tabindex="0">Ghosts<span class="mi-sw"></span></div>
+          <div class="mi mi--switch" id="btnHints" role="switch" aria-checked="true" tabindex="0">Hints<span class="mi-sw"></span></div>
         </div>
       </div>
     </div>

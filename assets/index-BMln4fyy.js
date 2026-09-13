@@ -14721,7 +14721,47 @@ class Recorder {
     return traj;
   }
 }
-const BUILD = "2026-09-13 01:14Z 52f6ed2";
+function currentHint({ play, arranging, currentTime }) {
+  if (play.tokens.length === 0) {
+    return arranging ? { id: "addPlayers", text: "Tap the court to add players", highlight: null } : { id: "addPlayers", text: "Tap Arrange to add players", highlight: "btnArrange" };
+  }
+  if (play.balls.length === 0) {
+    return arranging ? { id: "placeBall", text: "Drag the Ball onto a player", highlight: "srcBall" } : { id: "placeBall", text: "Tap Arrange, then drag the Ball onto a player", highlight: "btnArrange" };
+  }
+  const next = nextDrawingHint(play, currentTime);
+  if (next && arranging) return { id: "finishArranging", text: "Tap Done to start drawing", highlight: "btnArrange" };
+  return next;
+}
+function nextDrawingHint(play, currentTime) {
+  const hasMove = play.tokens.some((t) => t.segments.length > 0);
+  if (!hasMove) return { id: "drawMove", text: "Draw from a player to move them", highlight: null };
+  const startsAfterZero = play.tokens.some((t) => t.segments.some((s) => s.startT > 0)) || play.balls.some((b) => b.transfers.some((tr) => tr.startT > 0)) || play.annotations.some((a) => a.t > 0);
+  if (!startsAfterZero && currentTime <= 0) {
+    return { id: "scrub", text: "Drag the scrubber to where the move ends", highlight: "scrub" };
+  }
+  if (!play.balls.some((b) => b.transfers.length > 0)) {
+    return { id: "drawPass", text: "Draw from the ball to a player to pass", highlight: null };
+  }
+  if (play.annotations.length === 0) {
+    return { id: "drawNote", text: "Draw on empty floor to leave a note", highlight: null };
+  }
+  return null;
+}
+const HINTS_KEY = "drillpal.hints";
+function readHintsEnabled(storage) {
+  try {
+    return storage.getItem(HINTS_KEY) !== "off";
+  } catch {
+    return true;
+  }
+}
+function writeHintsEnabled(storage, on) {
+  try {
+    storage.setItem(HINTS_KEY, on ? "on" : "off");
+  } catch {
+  }
+}
+const BUILD = "2026-09-13 09:18Z 31e9e49";
 function $(id) {
   const el = document.getElementById(id);
   if (!el) throw new Error(`missing #${id}`);
@@ -14797,6 +14837,11 @@ const state = {
   playing: false,
   arranging: false,
   ghostsEnabled: true,
+  // The one PERSISTED preference in this block — an experienced coach turns
+  // hints off once. Own key (hints.ts); the storage call is deferred into the
+  // helper's try, since merely touching `localStorage` throws where site data
+  // is blocked, and this runs at boot.
+  hintsEnabled: readHintsEnabled({ getItem: (k) => localStorage.getItem(k) }),
   numbersEnabled: false,
   // pure DISPLAY toggle — every token is numbered regardless
   focusEnabled: false,
@@ -15438,6 +15483,7 @@ function currentPalette() {
   };
 }
 function render() {
+  syncHint();
   const layout = currentLayout();
   if (!(court.w > 0 && court.h > 0)) return;
   const doc = store.doc;
@@ -15755,6 +15801,7 @@ async function startRecording() {
   store.freeze(true);
   state.recording = true;
   syncViewBar();
+  syncHint();
   $("recordLiveBar").classList.add("open");
   elapsedStartWall = performance.now();
   $("recordElapsed").textContent = "0:00";
@@ -15779,6 +15826,7 @@ async function stopRecording() {
   state.recording = false;
   store.freeze(false);
   syncViewBar();
+  syncHint();
   recordNarration = micStream !== null && !micMuted ? await micCapture.stop() : null;
   micStream?.getTracks().forEach((t) => t.stop());
   micStream = null;
@@ -15887,6 +15935,24 @@ $("btnGhosts").addEventListener("click", () => {
   state.ghostsEnabled = !state.ghostsEnabled;
   $("btnGhosts").setAttribute("aria-checked", String(state.ghostsEnabled));
 });
+$("btnHints").setAttribute("aria-checked", String(state.hintsEnabled));
+$("btnHints").addEventListener("click", () => {
+  state.hintsEnabled = !state.hintsEnabled;
+  writeHintsEnabled({ setItem: (k, v) => localStorage.setItem(k, v) }, state.hintsEnabled);
+  $("btnHints").setAttribute("aria-checked", String(state.hintsEnabled));
+  syncHint();
+});
+function syncHint() {
+  const hint = state.hintsEnabled && !state.recording ? currentHint({ play: view(), arranging: state.arranging, currentTime: state.currentTime }) : null;
+  const el = $("hint");
+  const key = hint ? `${hint.id}|${hint.text}|${hint.highlight}` : "";
+  if (el.dataset.hintKey === key) return;
+  el.dataset.hintKey = key;
+  el.hidden = hint === null;
+  el.textContent = hint ? hint.text : "";
+  document.querySelectorAll(".hint-target").forEach((target) => target.classList.remove("hint-target"));
+  if (hint?.highlight) $(hint.highlight).classList.add("hint-target");
+}
 $("btnSaveFormation").addEventListener("click", () => {
   const raw = prompt("Save formation as:");
   const name = raw == null ? "" : raw.trim();
