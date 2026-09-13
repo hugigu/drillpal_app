@@ -994,7 +994,7 @@ function removeToken$1(doc, args) {
   };
   return { doc: next, time: clampToDuration(next, args.currentTime) };
 }
-function removeCone$1(doc, args) {
+function removeCone(doc, args) {
   return { doc: { ...doc, cones: doc.cones.filter((c) => c.id !== args.coneId) } };
 }
 function flipColorAt$1(doc, args) {
@@ -14721,16 +14721,23 @@ class Recorder {
     return traj;
   }
 }
-function currentHint({ play, arranging, currentTime }) {
+function currentHint({ play, arranging, currentTime, draggingOffCourt }) {
+  if (draggingOffCourt) return { id: "releaseToRemove", text: "Release to remove", highlight: null };
   if (play.tokens.length === 0) {
     return arranging ? { id: "addPlayers", text: "Tap the court to add players", highlight: null } : { id: "addPlayers", text: "Tap Arrange to add players", highlight: "btnArrange" };
   }
   if (play.balls.length === 0) {
-    return arranging ? { id: "placeBall", text: "Drag the Ball onto a player", highlight: "srcBall" } : { id: "placeBall", text: "Tap Arrange, then drag the Ball onto a player", highlight: "btnArrange" };
+    return arranging ? { id: "placeBall", text: "Drag the Ball onto a player" + arrangeClause(play), highlight: "srcBall" } : { id: "placeBall", text: "Tap Arrange, then drag the Ball onto a player", highlight: "btnArrange" };
   }
   const next = nextDrawingHint(play, currentTime);
-  if (next && arranging) return { id: "finishArranging", text: "Tap Done to start drawing", highlight: "btnArrange" };
+  if (next && arranging) {
+    return { id: "finishArranging", text: "Tap Done to start drawing" + arrangeClause(play), highlight: "btnArrange" };
+  }
   return next;
+}
+function arrangeClause(play) {
+  const colourUsed = play.tokens.some((t) => t.color === "red" || t.colorChanges.length > 0);
+  return colourUsed ? " · drag a player off the court to remove" : " · tap a player to change colour";
 }
 function nextDrawingHint(play, currentTime) {
   const hasMove = play.tokens.some((t) => t.segments.length > 0);
@@ -14740,7 +14747,7 @@ function nextDrawingHint(play, currentTime) {
     return { id: "scrub", text: "Drag the scrubber to where the move ends", highlight: "scrub" };
   }
   if (!play.balls.some((b) => b.transfers.length > 0)) {
-    return { id: "drawPass", text: "Draw from the ball to a player to pass", highlight: null };
+    return { id: "drawPass", text: "Draw from the ball to a player to pass, or to the hoop to shoot", highlight: null };
   }
   if (play.annotations.length === 0) {
     return { id: "drawNote", text: "Draw on empty floor to leave a note", highlight: null };
@@ -14761,7 +14768,7 @@ function writeHintsEnabled(storage, on) {
   } catch {
   }
 }
-const BUILD = "2026-09-13 09:18Z 31e9e49";
+const BUILD = "2026-09-13 10:04Z e733af0";
 function $(id) {
   const el = document.getElementById(id);
   if (!el) throw new Error(`missing #${id}`);
@@ -14769,7 +14776,7 @@ function $(id) {
 }
 const canvas = $("court");
 const ctx = canvas.getContext("2d");
-const BALL_R = 8, CONE_R = 10;
+const BALL_R = 8, CONE_R = 10, TOKEN_DRAG_R = 13;
 const MAX_BALLS_PER_PLAYER = 2;
 let _cssVarCache = /* @__PURE__ */ Object.create(null);
 function getCssVar(name) {
@@ -14865,7 +14872,6 @@ let activeStroke = null;
 let activeDrag = null;
 let activeBallDrag = null;
 let activeConeDrag = null;
-let arrangeMode = "player";
 let lastPlayTs = null;
 let idSeq = 1;
 function snapshotDocument() {
@@ -14942,11 +14948,6 @@ function stampToken(color, pt) {
 function removeToken(token2) {
   store.commit(removeToken$1, { tokenId: token2.id, currentTime: state.currentTime });
   state.currentTime = store.currentTime;
-  toast("removed", getCssVar("--red"));
-}
-const removeTokenState = removeToken;
-function removeCone(cone2) {
-  store.commit(removeCone$1, { coneId: cone2.id });
   toast("removed", getCssVar("--red"));
 }
 const FORMATIONS_KEY = "drillpal.formations";
@@ -15149,6 +15150,9 @@ function clampCourt(p) {
     v: clamp(p.v, 0, courtLengthM(state.courtMode))
   };
 }
+function inCourtBounds(pt) {
+  return pt.x >= court.x && pt.x <= court.x + court.w && pt.y >= court.y && pt.y <= court.y + court.h;
+}
 function localPoint(e) {
   return { x: e.clientX - canvasLeft, y: e.clientY - canvasTop };
 }
@@ -15165,16 +15169,6 @@ canvas.addEventListener("pointerdown", (e) => {
   canvas.setPointerCapture(e.pointerId);
   const pt = localPoint(e);
   if (state.arranging) {
-    if (arrangeMode === "remove") {
-      const token3 = hitToken(pt);
-      if (token3) {
-        removeToken(token3);
-        return;
-      }
-      const cone2 = hitCone(pt);
-      if (cone2) removeCone(cone2);
-      return;
-    }
     const existingBall = hitBall(pt);
     if (existingBall) {
       activeBallDrag = { pointerId: e.pointerId, ball: existingBall, isNew: false, pt };
@@ -15187,11 +15181,11 @@ canvas.addEventListener("pointerdown", (e) => {
     }
     const token22 = hitTokenForRepeatTap(pt, lastArrangeTap);
     if (token22) {
-      activeDrag = { pointerId: e.pointerId, token: token22, moved: false, startPt: pt };
+      activeDrag = { pointerId: e.pointerId, token: token22, moved: false, startPt: pt, pt };
       return;
     }
     const newToken = stampToken("blue", pt);
-    activeDrag = { pointerId: e.pointerId, token: newToken, moved: true, startPt: pt };
+    activeDrag = { pointerId: e.pointerId, token: newToken, moved: true, startPt: pt, pt };
     render();
     return;
   }
@@ -15245,11 +15239,16 @@ canvas.addEventListener("pointermove", (e) => {
     const pt = localPoint(e);
     if (!activeDrag.moved && screenDist(pt, activeDrag.startPt) > 6) activeDrag.moved = true;
     if (activeDrag.moved) {
-      store.commit(
-        moveTokenHome,
-        { tokenId: activeDrag.token.id, home: clampCourt(toCourt(pt)) },
-        { coalesce: "drag:" + activeDrag.token.id }
-      );
+      activeDrag.pt = pt;
+      if (inCourtBounds(pt)) {
+        store.commit(
+          moveTokenHome,
+          { tokenId: activeDrag.token.id, home: clampCourt(toCourt(pt)) },
+          { coalesce: "drag:" + activeDrag.token.id }
+        );
+      } else {
+        render();
+      }
     }
     return;
   }
@@ -15302,10 +15301,10 @@ function finishPointer(e) {
     let changed = drag.moved;
     if (drag.moved) {
       lastArrangeTap = null;
+      if (!inCourtBounds(drag.pt)) removeToken(drag.token);
     } else {
       lastArrangeTap = { tokenId: drag.token.id, time: performance.now() };
-      if (drag.token.color === "blue") switchColor(drag.token);
-      else removeTokenState(drag.token);
+      switchColor(drag.token);
       changed = true;
     }
     if (!changed) render();
@@ -15342,7 +15341,7 @@ function finishPointer(e) {
   if (activeConeDrag && e.pointerId === activeConeDrag.pointerId) {
     const drag = activeConeDrag;
     activeConeDrag = null;
-    const inCourt = drag.pt.x >= court.x && drag.pt.x <= court.x + court.w && drag.pt.y >= court.y && drag.pt.y <= court.y + court.h;
+    const inCourt = inCourtBounds(drag.pt);
     let changed = false;
     if (inCourt) {
       const at = clampCourt(toCourt(drag.pt));
@@ -15354,7 +15353,7 @@ function finishPointer(e) {
       }
       changed = true;
     } else if (!drag.isNew) {
-      store.commit(removeCone$1, { coneId: drag.cone.id });
+      store.commit(removeCone, { coneId: drag.cone.id });
       toast("removed", getCssVar("--red"));
       changed = true;
     }
@@ -15507,6 +15506,7 @@ function render() {
   renderEntities(ctx, doc, state.currentTime, opts);
   drawActiveBallDrag();
   drawActiveConeDrag();
+  drawActiveTokenDrag();
   drawTransport();
 }
 function drawGhosts() {
@@ -15571,6 +15571,19 @@ function drawActiveConeDrag() {
   coneTrianglePath(activeConeDrag.pt.x, activeConeDrag.pt.y, CONE_R);
   ctx.fill();
   ctx.restore();
+}
+function drawActiveTokenDrag() {
+  if (!activeDrag || !activeDrag.moved || inCourtBounds(activeDrag.pt)) return;
+  ctx.save();
+  ctx.globalAlpha = 0.6;
+  ctx.fillStyle = getCssVar(activeDrag.token.color === "blue" ? "--blue" : "--red");
+  ctx.beginPath();
+  ctx.arc(activeDrag.pt.x, activeDrag.pt.y, TOKEN_DRAG_R, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+function draggingTokenOffCourt() {
+  return activeDrag !== null && activeDrag.moved && !inCourtBounds(activeDrag.pt);
 }
 let _lastTimeStr = "", _lastTotalStr = "";
 function drawTransport() {
@@ -15943,7 +15956,12 @@ $("btnHints").addEventListener("click", () => {
   syncHint();
 });
 function syncHint() {
-  const hint = state.hintsEnabled && !state.recording ? currentHint({ play: view(), arranging: state.arranging, currentTime: state.currentTime }) : null;
+  const hint = state.hintsEnabled && !state.recording ? currentHint({
+    play: view(),
+    arranging: state.arranging,
+    currentTime: state.currentTime,
+    draggingOffCourt: draggingTokenOffCourt()
+  }) : null;
   const el = $("hint");
   const key = hint ? `${hint.id}|${hint.text}|${hint.highlight}` : "";
   if (el.dataset.hintKey === key) return;
@@ -16097,18 +16115,12 @@ window.addEventListener("keydown", (e) => {
   if (e.shiftKey) redo();
   else undo();
 });
-function setArrangeMode(mode) {
-  arrangeMode = mode;
-  $("btnAddPlayer").setAttribute("aria-pressed", String(mode === "player"));
-  $("btnRemove").setAttribute("aria-pressed", String(mode === "remove"));
-}
 function setArranging(on) {
   state.arranging = on;
   const btn = $("btnArrange");
   btn.textContent = on ? "Done" : "Arrange";
   btn.classList.toggle("b--primary", on);
   $("app").classList.toggle("arranging", on);
-  if (on) setArrangeMode("player");
   if (on) {
     state.currentTime = 0;
     togglePlay(false);
@@ -16119,8 +16131,6 @@ $("btnArrange").addEventListener("click", () => {
   if (state.recording) return;
   setArranging(!state.arranging);
 });
-$("btnAddPlayer").addEventListener("click", () => setArrangeMode("player"));
-$("btnRemove").addEventListener("click", () => setArrangeMode("remove"));
 function wireSource(elId, kind) {
   const el = $(elId);
   el.addEventListener("pointerdown", (e) => {
