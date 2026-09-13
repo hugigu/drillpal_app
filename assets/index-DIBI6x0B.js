@@ -1841,10 +1841,6 @@ function drawBallTransfers(ctx2, layout, palette, resolved, t, focus) {
     }
   }
 }
-function renderFrame(ctx2, doc, t, opts) {
-  renderScene(ctx2, doc, t, opts);
-  renderEntities(ctx2, doc, t, opts);
-}
 function renderScene(ctx2, doc, t, opts) {
   const { layout, palette, view: view2, memo } = opts;
   const resolved = resolveBranch(doc, view2.branchId ?? void 0);
@@ -1878,6 +1874,24 @@ function renderEntities(ctx2, doc, t, opts) {
   for (const token2 of resolved.tokens) drawToken(ctx2, layout, palette, token2, t, view2);
   drawBall(ctx2, layout, palette, doc.courtMode, resolved, t);
 }
+function drawLiveInk(ctx2, layout, palette, ink) {
+  if (ink.points.length < 2) return;
+  ctx2.save();
+  ctx2.strokeStyle = ink.kind === "note" ? palette.ink : ink.kind === "transfer" ? palette.pass : palette.accent;
+  ctx2.lineCap = "round";
+  ctx2.lineJoin = "round";
+  const last2 = ink.widths[ink.widths.length - 1] ?? 0;
+  for (let i = 1; i < ink.points.length; i++) {
+    const a = toScreen(layout, ink.points[i - 1]);
+    const b = toScreen(layout, ink.points[i]);
+    ctx2.lineWidth = px(ink.widths[i] ?? last2, layout.scale);
+    ctx2.beginPath();
+    ctx2.moveTo(a.x, a.y);
+    ctx2.lineTo(b.x, b.y);
+    ctx2.stroke();
+  }
+  ctx2.restore();
+}
 class Store {
   doc;
   currentTime;
@@ -1901,13 +1915,17 @@ class Store {
     return this.frozen;
   }
   /**
-   * Freezes or unfreezes the document against every mutating method below
-   * (commit, reset, undo, redo) — a single choke point rather than a guard
-   * at each of main.ts's call sites, which is exactly the shape of bug this
-   * project keeps finding one missed instance of. Slice 5b's live recording
-   * is the first caller: the exported clip assumes ONE document for its
-   * whole duration (see ExportSample not being pre-plumbed with `doc`), so
-   * the document must not change while a take is running.
+   * Freezes or unfreezes the document against `reset()` — a single choke
+   * point rather than a guard at each of main.ts's call sites, which is
+   * exactly the shape of bug this project keeps finding one missed instance
+   * of. Originally blocked `commit`/`undo`/`redo` too, for slice 5b's live
+   * recording: the exported clip assumed ONE document for its whole
+   * duration. That assumption is gone as of the drawing-while-recording
+   * slice — `ExportSample` carries a per-frame `doc` now, so the document
+   * CAN change mid-take and the clip still renders each frame's own state.
+   * What still can't happen mid-take is swapping to a DIFFERENT document
+   * outright (loading a play, recalling a formation) — `reset()` stays
+   * blocked for that.
    */
   freeze(on) {
     this.frozen = on;
@@ -1921,7 +1939,6 @@ class Store {
    * call site's existing guard-before-call pattern.
    */
   commit(op, args, opts) {
-    if (this.frozen) return;
     const { doc, time } = op(this.doc, args);
     if (doc === this.doc) {
       if (time !== void 0) this.currentTime = time;
@@ -1953,7 +1970,6 @@ class Store {
    *  restoreSnapshot never touches currentTime either, so the playhead stays
    *  put across an undo. */
   undo() {
-    if (this.frozen) return;
     this.lastCoalesce = void 0;
     if (!canUndo(this.history)) return;
     this.history = historyUndo(this.history);
@@ -1961,7 +1977,6 @@ class Store {
     this.onChange?.();
   }
   redo() {
-    if (this.frozen) return;
     this.lastCoalesce = void 0;
     if (!canRedo(this.history)) return;
     this.history = historyRedo(this.history);
@@ -14333,7 +14348,7 @@ function chunkNarration(track, offsetS) {
   }
   return chunks;
 }
-async function renderClip(ctx2, doc, frames, opts) {
+async function renderClip(ctx2, frames, opts) {
   const { layout, palette, onFrame } = opts;
   const memo = opts.memo ?? createMemoScope();
   for (let i = 0; i < frames.length; i++) {
@@ -14341,7 +14356,10 @@ async function renderClip(ctx2, doc, frames, opts) {
     ctx2.globalAlpha = 1;
     ctx2.fillStyle = palette.court;
     ctx2.fillRect(0, 0, layout.canvasW, layout.canvasH);
-    renderFrame(ctx2, doc, frame.docTime, { layout, palette, view: frame.view, memo });
+    const opts2 = { layout, palette, view: frame.view, memo };
+    renderScene(ctx2, frame.doc, frame.docTime, opts2);
+    if (frame.liveInk) drawLiveInk(ctx2, layout, palette, frame.liveInk);
+    renderEntities(ctx2, frame.doc, frame.docTime, opts2);
     await onFrame(frame, i);
   }
 }
@@ -14394,18 +14412,22 @@ function planFrames(traj, opts = {}) {
       timestampUs,
       durationUs: Math.round((n + 1) * 1e6 / fps) - timestampUs,
       docTime,
-      view: a.view
+      // All three step-hold: a toggle flips, a commit lands, and a pen lifts,
+      // each at an instant. Only docTime sweeps.
+      view: a.view,
+      doc: a.doc,
+      liveInk: a.liveInk
     });
   }
   return frames;
 }
-function syntheticTrajectory(resolved, view2, opts = {}) {
+function syntheticTrajectory(doc, view2, opts = {}) {
   const hold = opts.tailHoldMs ?? EXPORT_TAIL_HOLD_MS;
-  const end = contentEnd(resolved);
+  const end = contentEnd(resolveBranch(doc, view2.branchId ?? void 0));
   const v = view2.arranging ? { ...view2, arranging: false } : view2;
-  const traj = [{ wallT: 0, docTime: 0, view: v }];
-  if (end > 0) traj.push({ wallT: end, docTime: end, view: v });
-  if (hold > 0) traj.push({ wallT: end + hold, docTime: end, view: v });
+  const traj = [{ wallT: 0, docTime: 0, view: v, doc, liveInk: null }];
+  if (end > 0) traj.push({ wallT: end, docTime: end, view: v, doc, liveInk: null });
+  if (hold > 0) traj.push({ wallT: end + hold, docTime: end, view: v, doc, liveInk: null });
   return traj;
 }
 const CODEC_PREFERENCE = [
@@ -14456,7 +14478,7 @@ async function exportPlayToMp4(doc, opts) {
   if (!hasVideoExport()) throw new Error("Video export needs WebCodecs, which this browser does not have");
   const fps = opts.fps ?? EXPORT_FPS;
   const traj = opts.trajectory ?? syntheticTrajectory(
-    resolveBranch(doc, opts.view.branchId ?? void 0),
+    doc,
     opts.view,
     { tailHoldMs: opts.tailHoldMs ?? EXPORT_TAIL_HOLD_MS }
   );
@@ -14507,7 +14529,7 @@ async function exportPlayToMp4(doc, opts) {
   await output.start();
   const keyEvery = keyFrameEvery(fps);
   try {
-    await renderClip(ctx2, doc, frames, {
+    await renderClip(ctx2, frames, {
       layout,
       palette: opts.palette,
       onFrame: async (frame, i) => {
@@ -14667,18 +14689,28 @@ class Recorder {
   }
   /** Begins a take, seeding it with the state at the moment of Start — so a
    *  take stopped instantly still has the one sample planFrames requires. */
-  start(wallT, docTime, view2) {
+  start(wallT, docTime, view2, doc, liveInk = null) {
     this.samples = [];
-    this.sample(wallT, docTime, view2);
+    this.sample(wallT, docTime, view2, doc, liveInk);
   }
-  /** `arranging` is forced off on every sample, the same guard
-   *  `syntheticTrajectory` applies — it's an editing affordance with no
-   *  business in a clip, and drawing-while-recording (its own later slice)
-   *  is exactly the thing that would otherwise make this observable. */
-  sample(wallT, docTime, view2) {
+  /**
+   * `arranging` is forced off on every sample, the same guard
+   * `syntheticTrajectory` applies — an editing affordance with no business in
+   * a clip. Arrange stays disabled during a take for the same reason, so this
+   * is belt-and-braces rather than the only guard.
+   *
+   * `doc` is taken per sample, not once at start(): a coach drawing mid-take
+   * changes it, and the whole clip pipeline now treats it as a function of
+   * wall time. Passing the SAME reference repeatedly is free and expected —
+   * structural sharing means an unchanged document is the identical object,
+   * which is also what keeps renderClip's memo caches warm.
+   *
+   * `liveInk` is the stroke under the pen, in COURT space, or null.
+   */
+  sample(wallT, docTime, view2, doc, liveInk = null) {
     if (this.samples === null) throw new Error("Recorder.sample called before start()");
     const v = view2.arranging ? { ...view2, arranging: false } : view2;
-    this.samples.push({ wallT, docTime, view: v });
+    this.samples.push({ wallT, docTime, view: v, doc, liveInk });
   }
   /** Ends the take and returns its trajectory. Resets so a stale reference
    *  can't be mistaken for the next take's. */
@@ -14689,7 +14721,7 @@ class Recorder {
     return traj;
   }
 }
-const BUILD = "2026-09-12 23:26Z 33e136f";
+const BUILD = "2026-09-13 00:15Z 18cf7a1";
 const canvas = document.getElementById("court");
 const ctx = canvas.getContext("2d");
 const BALL_R = 8, CONE_R = 10;
@@ -14767,10 +14799,13 @@ const state = {
   lines: "all",
   // the ROLE axis — annotated so it does not widen to string
   notesHidden: false,
-  // A live take is running (slice 5b): the pen is genuinely inert (canvas
-  // pointerdown returns immediately) and store.freeze(true) blocks every
-  // document edit at its single choke point. Scrub/play/pause and the view
-  // toggles above stay live on purpose — driving the play IS the performance.
+  // A live take is running. The pen draws for real (drawing-while-recording
+  // slice) — Store.freeze(true) now blocks only reset(), not commit/undo/
+  // redo, since the exported clip takes a per-frame doc and can follow a
+  // changing document. Arrange stays out of reach for UX reasons (see
+  // btnArrange), and Clear board stays disabled because its confirm()
+  // dialog would stall sampling. Scrub/play/pause and the view toggles
+  // above stay live on purpose — driving the play IS the performance.
   recording: false
 };
 function totalDuration() {
@@ -15068,7 +15103,6 @@ function pressureWidth(e) {
 }
 let penEverSeen = false;
 canvas.addEventListener("pointerdown", (e) => {
-  if (state.recording) return;
   if (e.pointerType === "pen") penEverSeen = true;
   if (e.pointerType === "touch" && penEverSeen) return;
   if (state.playing) togglePlay(false);
@@ -15133,6 +15167,15 @@ canvas.addEventListener("pointerdown", (e) => {
     ball: ball2,
     points: [pt],
     widths: [pressureWidth(e)],
+    // Court-space parallel to points/widths, gained for the drawing-while-
+    // recording slice: renderClip and the live canvas both draw through
+    // drawLiveInk, which is court-native (it renders at whatever layout it's
+    // handed — the export clip's layout is not the live canvas's). points/
+    // widths above stay screen-space and untouched: the tap-vs-stroke length
+    // threshold is a chrome px value, and the final commit still converts
+    // `points` once against one layout, exactly as before.
+    courtPoints: [toCourt(pt)],
+    widthsM: [pressureWidth(e) / REFERENCE_PX_PER_M],
     startWall: performance.now(),
     startT: state.currentTime,
     lastEventTs: e.timeStamp
@@ -15174,6 +15217,8 @@ canvas.addEventListener("pointermove", (e) => {
     if (prev && p.x === prev.x && p.y === prev.y) continue;
     activeStroke.points.push(p);
     activeStroke.widths.push(pressureWidth(ev));
+    activeStroke.courtPoints.push(toCourt(p));
+    activeStroke.widthsM.push(pressureWidth(ev) / REFERENCE_PX_PER_M);
     appended++;
   }
   if (!appended && e.timeStamp > activeStroke.lastEventTs) {
@@ -15183,6 +15228,8 @@ canvas.addEventListener("pointermove", (e) => {
     if (!prev || p.x !== prev.x || p.y !== prev.y) {
       activeStroke.points.push(p);
       activeStroke.widths.push(pressureWidth(e));
+      activeStroke.courtPoints.push(toCourt(p));
+      activeStroke.widthsM.push(pressureWidth(e) / REFERENCE_PX_PER_M);
     }
   }
   render();
@@ -15386,7 +15433,7 @@ function render() {
     branchId: null
     // live state already holds the active branch's timeline
   };
-  if (state.recording) recorder.sample(performance.now(), state.currentTime, viewOpts);
+  if (state.recording) recorder.sample(performance.now(), state.currentTime, viewOpts, doc, activeLiveInk());
   const opts = { layout, palette: currentPalette(), view: viewOpts, memo: coreMemo };
   ctx.clearRect(0, 0, canvasCssW, canvasCssH);
   renderScene(ctx, doc, state.currentTime, opts);
@@ -15429,21 +15476,12 @@ function drawGhosts() {
   }
   ctx.restore();
 }
+function activeLiveInk() {
+  if (!activeStroke) return null;
+  return { kind: activeStroke.mode, points: activeStroke.courtPoints, widths: activeStroke.widthsM };
+}
 function drawLiveStroke() {
-  const s = activeStroke;
-  const color = s.mode === "note" ? getCssVar("--ink") : s.mode === "transfer" ? getCssVar("--pass") : getCssVar("--accent");
-  ctx.save();
-  ctx.strokeStyle = color;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
-  for (let i = 1; i < s.points.length; i++) {
-    ctx.lineWidth = s.widths[i];
-    ctx.beginPath();
-    ctx.moveTo(s.points[i - 1].x, s.points[i - 1].y);
-    ctx.lineTo(s.points[i].x, s.points[i].y);
-    ctx.stroke();
-  }
-  ctx.restore();
+  drawLiveInk(ctx, currentLayout(), currentPalette(), activeLiveInk());
 }
 function drawActiveBallDrag() {
   if (!activeBallDrag) return;
@@ -15712,14 +15750,14 @@ async function startRecording() {
       toast("long take — still recording", getCssVar("--ink"));
     }
   }, 250);
-  recorder.start(performance.now(), state.currentTime, currentViewOptions());
+  recorder.start(performance.now(), state.currentTime, currentViewOptions(), store.doc, null);
   if (micStream !== null && !micMuted) await micCapture.start(micStream);
 }
 document.getElementById("btnRecordStart").addEventListener("click", startRecording);
 async function stopRecording() {
   if (elapsedTimer !== null) clearInterval(elapsedTimer);
   document.getElementById("recordLiveBar").classList.remove("open");
-  recorder.sample(performance.now(), state.currentTime, currentViewOptions());
+  recorder.sample(performance.now(), state.currentTime, currentViewOptions(), store.doc, null);
   recordTrajectory = recorder.stop();
   state.recording = false;
   store.freeze(false);
@@ -15809,9 +15847,7 @@ function syncViewBar() {
     document.getElementById("vbLines-" + v).setAttribute("aria-pressed", String(state.lines === v));
   }
   document.getElementById("vbFocus").disabled = state.lines === "none";
-  for (const id of ["btnClearBoard", "btnClearNotes"]) {
-    document.getElementById(id).disabled = state.recording;
-  }
+  document.getElementById("btnClearBoard").disabled = state.recording;
 }
 for (const v of LINES_STATES) {
   document.getElementById("vbLines-" + v).addEventListener("click", () => {
